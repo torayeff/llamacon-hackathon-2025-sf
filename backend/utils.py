@@ -8,7 +8,6 @@ def video_to_frames(
     video_path,
     time_based_sampling="first",
     as_base64=False,
-    image_format=".jpg",
 ):
     """
     Reads a video file and returns an array of frames, one frame per second.
@@ -20,7 +19,6 @@ def video_to_frames(
                                   "last" - last frame in each second
                                   "random" - random frame within each second
         as_base64 (bool): If True, returns frames as base64 encoded strings
-        image_format (str): Image format for base64 conversion (.jpg, .png)
 
     Returns:
         list: Array of frames as numpy arrays or base64 strings
@@ -60,10 +58,10 @@ def video_to_frames(
 
         if success:
             if as_base64:
-                success, buffer = cv2.imencode(image_format, frame)
+                success, buffer = cv2.imencode(".png", frame)
                 if success:
                     frame_base64 = base64.b64encode(buffer).decode("utf-8")
-                    frames.append(frame_base64)
+                    frames.append(f"data:image/png;base64,{frame_base64}")
             else:
                 frames.append(frame)
 

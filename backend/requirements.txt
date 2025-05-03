@@ -1,3 +1,4 @@
-llama-api-client
+devtools
 openai
+opencv-python
 python-dotenv
