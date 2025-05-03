@@ -1,0 +1,2 @@
+streams:
+  hackathon: ffmpeg:../localdata/hackathon_demo.mp4#video=h264
