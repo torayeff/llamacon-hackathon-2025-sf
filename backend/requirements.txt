@@ -1,4 +1,5 @@
 devtools
 openai
 opencv-python
+pydantic
 python-dotenv

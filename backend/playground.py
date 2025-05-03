@@ -1,5 +1,7 @@
+import json
 import os
 
+from devtools import debug
 from dotenv import load_dotenv
 from openai import OpenAI
 from utils import video_to_frames
@@ -24,7 +26,8 @@ CONTEXT = "These frames are sampled every 1 second from a video of a robotic arm
 SYSTEM_PROMPT = """You are a video analytics agent specialized in factual event detection.
     Your task is to determine, based strictly on visual and contextual evidence, whether specific events occurred in the video.
     Do not infer or assume beyond what is clearly supported by the video and context.
-    Use only the visual content and the following context when making determinations: {context}"""
+    Use only the visual content and the following context when making determinations: {context}
+    Format your response as JSON."""
 
 USER_PROMPT = """Based on the the sequence of frames and the provided context, analyze whether the following events occurred. Respond with a factual assessment of each event\n: {events_list}"""
 
@@ -83,9 +86,34 @@ def build_user_message(frames, prompt, events):
 system_message = build_system_message(SYSTEM_PROMPT, CONTEXT)
 user_message = build_user_message(frames=frames[:5], prompt=USER_PROMPT, events=events)
 
+
+json_schema = {
+    "schema": {
+        "type": "object",
+        "properties": {
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "event_code": {"type": "string"},
+                        "detected": {"type": "boolean"},
+                        "explanation": {"type": "string"},
+                    },
+                    "required": ["event_code", "detected", "explanation"],
+                },
+            }
+        },
+        "required": ["events"],
+    }
+}
+
+
 response = client.chat.completions.create(
     model=model,
     messages=[system_message, user_message],
+    response_format={"type": "json_schema", "json_schema": json_schema},
 )
 
-print(response.choices[0])
+response_json = json.loads(response.choices[0].message.content)
+debug(response_json)
