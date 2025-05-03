@@ -1,0 +1,5 @@
+{
+  "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "system_prompt": "You are a video analysis assistant. Given the frames of a video, your task is ",
+  "user_prompt": "What is the capital of France?"
+}
