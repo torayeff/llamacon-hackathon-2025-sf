@@ -15,12 +15,47 @@
 ### TODO
 - [x] Check Llama 4 video capabilities - Max 128k, Max 9 frames at 640x360.
 - [x] Test simple video event detection - Kinda works.
-- [ ] Develop logic for stream
+- [x] Develop logic for stream
 - [x] Develop logic for alerting
+- [ ] Implement Video Stream Chunker
+- [ ] Implement Database Writer
 - [ ] Think about frontend
 
-#### Streaming logic
-1. Read from RTSP stream
-2. Buffer N frames
-3. Send this frames to Llama and get results
-4. Save to database
+```mermaid
+flowchart LR
+  %% ── Core stages ──
+  subgraph Core stages
+    RTSP["RTSP Stream"]
+    Chunker["Video Stream Chunker (saves N-second files)"]
+    Detector["Video Event Detector"]
+    DBWriter["Database Writer"]
+  end
+
+  %% ── Supporting resources ──
+  subgraph Supporting resources
+    FS[(Filesystem)]
+    ChunkQueue["Chunk Queue (file paths)"]
+    EventQueue["Event Queue (event JSON)"]
+    DB[(Database)]
+  end
+
+  %% ── Data flow ──
+  RTSP --> Chunker
+
+  %% writes video files
+  Chunker --> FS
+
+  %% enqueues file paths
+  Chunker --> ChunkQueue
+
+  ChunkQueue --> Detector
+
+  %% enqueues detected events
+  Detector --> EventQueue
+
+  EventQueue --> DBWriter
+
+  %% persists events
+  DBWriter --> DB
+
+```
