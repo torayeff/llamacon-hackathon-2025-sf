@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
+from devtools import debug
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -17,9 +18,7 @@ class VideoEventDetector:
     and sending them to the Llama API for event detection analysis.
     """
 
-    def __init__(
-        self, api_key: Optional[str] = None, model: Optional[str] = None
-    ) -> None:
+    def __init__(self, model: str, base_url: str, api_key: str) -> None:
         """Initialize the VideoEventDetector with API key and model.
 
         Args:
@@ -29,16 +28,10 @@ class VideoEventDetector:
         Raises:
             ValueError: If model is not provided or API key is not available.
         """
-        load_dotenv()
-
-        if not model:
-            raise ValueError("Model name must be provided")
 
         self.model: str = model
-        api_key = api_key or os.environ.get("LLAMA_API_KEY")
-
-        if not api_key:
-            raise ValueError("API key must be provided or available in environment")
+        self.base_url: str = base_url
+        self.api_key: str = api_key
 
         self.client: OpenAI = OpenAI(
             api_key=api_key, base_url="https://api.llama.com/compat/v1/"
@@ -301,13 +294,18 @@ class VideoEventDetector:
 
 
 if __name__ == "__main__":
+    load_dotenv()
+
     model = "Llama-4-Maverick-17B-128E-Instruct-FP8"
+    base_url = "https://api.llama.com/v1/"
+    api_key = os.getenv("LLAMA_API_KEY")
+
     context = (
         "These frames are sampled every 1 second from a video of a robotic arm. "
         "The sequences depict a warehouse environment with a robotic arm and a conveyor belt."
     )
 
-    detector = VideoEventDetector(model=model)
+    detector = VideoEventDetector(model=model, base_url=base_url, api_key=api_key)
 
     events = [
         {
@@ -332,4 +330,4 @@ if __name__ == "__main__":
         "../localdata/chunk_2.mp4", events=events, context=context
     )
 
-    print(json.dumps(results, indent=2))
+    debug(results)
