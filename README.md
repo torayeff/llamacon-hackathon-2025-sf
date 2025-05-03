@@ -16,5 +16,11 @@
 - [x] Check Llama 4 video capabilities - Max 128k, Max 9 frames at 640x360.
 - [x] Test simple video event detection - Kinda works.
 - [ ] Develop logic for stream
-- [ ] Develop logic for alerting
+- [x] Develop logic for alerting
 - [ ] Think about frontend
+
+#### Streaming logic
+1. Read from RTSP stream
+2. Buffer N frames
+3. Send this frames to Llama and get results
+4. Save to database
