@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -22,8 +22,9 @@ class VideoEventDetector:
         """Initialize the VideoEventDetector with API key and model.
 
         Args:
-            api_key: Llama API key. If None, loads from environment.
             model: Model name to use for event detection.
+            base_url: Base URL for the API.
+            api_key: API key for authentication.
 
         Raises:
             ValueError: If model is not provided or API key is not available.
@@ -33,9 +34,7 @@ class VideoEventDetector:
         self.base_url: str = base_url
         self.api_key: str = api_key
 
-        self.client: OpenAI = OpenAI(
-            api_key=api_key, base_url="https://api.llama.com/compat/v1/"
-        )
+        self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
 
         self.system_prompt: str = (
             "You are a video analytics agent specialized in factual event detection.\n"
@@ -254,7 +253,7 @@ class VideoEventDetector:
         events: List[Dict[str, str]],
         context: str,
         time_based_sampling: str = "random",
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[List[Dict[str, Any]], str]]:
         """Detect events in video using context and events criteria.
 
         Args:
@@ -262,10 +261,10 @@ class VideoEventDetector:
             events: List of event dictionaries with keys:
                    event_code, event_description, detection_guidelines.
             context: Context description for the video analysis.
-            time_based_sampling: Method for extracting frames.
+            time_based_sampling: Method for extracting frames ("first", "last", or "random").
 
         Returns:
-            Detection results with events analysis.
+            Detection results with events analysis or error message.
 
         Raises:
             ValueError: If context is not provided.
@@ -297,7 +296,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     model = "Llama-4-Maverick-17B-128E-Instruct-FP8"
-    base_url = "https://api.llama.com/v1/"
+    base_url = "https://api.llama.com/compat/v1/"
     api_key = os.getenv("LLAMA_API_KEY")
 
     context = (
