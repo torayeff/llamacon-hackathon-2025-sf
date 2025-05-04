@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import queue
 import random
 from typing import Any, Dict, List, Optional, Union
 
@@ -18,13 +19,20 @@ class VideoEventDetector:
     and sending them to the Llama API for event detection analysis.
     """
 
-    def __init__(self, model: str, base_url: str, api_key: str) -> None:
+    def __init__(
+        self,
+        model: str,
+        base_url: str,
+        api_key: str,
+        output_queue: Optional[queue.Queue] = None,
+    ) -> None:
         """Initialize the VideoEventDetector with API key and model.
 
         Args:
             model: Model name to use for event detection.
             base_url: Base URL for the API.
             api_key: API key for authentication.
+            output_queue: Optional queue to send detection results to.
 
         Raises:
             ValueError: If model is not provided or API key is not available.
@@ -33,6 +41,7 @@ class VideoEventDetector:
         self.model: str = model
         self.base_url: str = base_url
         self.api_key: str = api_key
+        self.output_queue: Optional[queue.Queue] = output_queue
 
         self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -289,42 +298,40 @@ class VideoEventDetector:
             response_format={"type": "json_schema", "json_schema": json_schema},
         )
 
-        return json.loads(response.choices[0].message.content)
+        results = json.loads(response.choices[0].message.content)
+
+        if self.output_queue is not None:
+            video_filename = os.path.basename(video_path)
+            detected_events = []
+            if "events" in results:
+                detected_events = [
+                    event
+                    for event in results["events"]
+                    if event.get("detected") is True
+                ]
+            if detected_events:
+                queue_data = {
+                    "video_filename": video_filename,
+                    "detection_results": detected_events,
+                }
+                self.output_queue.put(queue_data)
+
+        return results
 
 
 if __name__ == "__main__":
     load_dotenv()
 
-    model = "Llama-4-Maverick-17B-128E-Instruct-FP8"
-    base_url = "https://api.llama.com/compat/v1/"
-    api_key = os.getenv("LLAMA_API_KEY")
+    with open("config.json", "r") as f:
+        config = json.load(f)
 
-    context = (
-        "These frames are sampled every 1 second from a video of a robotic arm. "
-        "The sequences depict a warehouse environment with a robotic arm and a conveyor belt."
-    )
+    model = config["model"]
+    base_url = config["base_url"]
+    api_key = os.getenv("LLAMA_API_KEY")
+    context = config["context"]
+    events = config["events"]
 
     detector = VideoEventDetector(model=model, base_url=base_url, api_key=api_key)
-
-    events = [
-        {
-            "event_code": "robot-is-idle",
-            "event_description": "The robotic arm hasn't moved for the whole duration of the video.",
-            "detection_guidelines": (
-                "This event must be detected if and only if the robot hasn't moved "
-                "for the whole duration of the video and the green light is on."
-            ),
-        },
-        {
-            "event_code": "robot-in-error",
-            "event_description": "The robot is in error state.",
-            "detection_guidelines": (
-                "This event must be detected if and only if the robot hasn't moved "
-                "for the whole duration of the video and the red light is on."
-            ),
-        },
-    ]
-
     results = detector.detect_events(
         "../localdata/chunk_2.mp4", events=events, context=context
     )
