@@ -80,7 +80,10 @@ export default function EventLogs() {
 
   // Open video in modal or new window
   const openVideo = (url: string) => {
-    window.open(url, "_blank", "width=800,height=600");
+    // Format the URL to use the video endpoint with filepath as query parameter
+    const videoEndpoint = "http://localhost:8000/video";
+    const formattedUrl = `${videoEndpoint}?filepath=${encodeURIComponent(url)}`;
+    window.open(formattedUrl, "_blank", "width=800,height=600");
   };
 
   return (
