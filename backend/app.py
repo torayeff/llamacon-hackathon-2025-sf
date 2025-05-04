@@ -11,6 +11,7 @@ import uvicorn
 from db_writer import DBWriter, EventAlert
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from video_event_detector import VideoEventDetector
 from video_stream_chunker import VideoStreamChunker
@@ -23,6 +24,15 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = FastAPI(title="Video Event Detection API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 video_chunk_queue: queue.Queue[str] = queue.Queue(maxsize=100)
 event_detection_queue: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=100)

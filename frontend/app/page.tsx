@@ -74,6 +74,124 @@ export default function Home() {
   } | null>(null);
 
   const [showConfig, setShowConfig] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Function to start detection
+  const startDetection = async () => {
+    try {
+      setStatusMessage("Starting detection...");
+
+      // Format the request body according to backend API
+      const requestBody = {
+        model: state.llamaModel,
+        base_url: state.baseUrl,
+        rtsp_url: state.rtspUrl,
+        chunk_duration: state.chunkDuration,
+        output_dir: state.outputDir,
+        context: state.streamContext,
+        events: state.eventsToDetect.map((event) => ({
+          event_code: event.code,
+          event_description: event.description,
+          detection_guidelines: event.guidelines,
+        })),
+      };
+
+      const response = await fetch("http://localhost:8000/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        setIsDetecting(true);
+        setStatusMessage("Detection started successfully");
+
+        // Start polling for events
+        pollForEvents();
+      } else {
+        const errorData = await response.json();
+        setStatusMessage(
+          `Error starting detection: ${errorData.detail || response.statusText}`
+        );
+      }
+    } catch (error) {
+      setStatusMessage(
+        `Error starting detection: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  };
+
+  // Function to stop detection
+  const stopDetection = async () => {
+    try {
+      setStatusMessage("Stopping detection...");
+      const response = await fetch("http://localhost:8000/stop", {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        setIsDetecting(false);
+        setStatusMessage("Detection stopped successfully");
+      } else {
+        const errorData = await response.json();
+        setStatusMessage(
+          `Error stopping detection: ${errorData.detail || response.statusText}`
+        );
+      }
+    } catch (error) {
+      setStatusMessage(
+        `Error stopping detection: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  };
+
+  // Function to poll for events
+  const pollForEvents = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/status");
+      if (response.ok) {
+        const data = await response.json();
+
+        // If we have detected events from the server, update our state
+        if (data.detected_events && Array.isArray(data.detected_events)) {
+          const formattedEvents = data.detected_events.map(
+            (event: {
+              event_code: string;
+              event_description: string;
+              detection_guidelines: string;
+            }) => ({
+              code: event.event_code,
+              description: event.event_description,
+              guidelines: event.detection_guidelines,
+            })
+          );
+
+          setState((prevState) => ({
+            ...prevState,
+            detectedEvents: formattedEvents,
+          }));
+        }
+
+        // Continue polling if detection is active
+        if (isDetecting) {
+          setTimeout(pollForEvents, 2000); // Poll every 2 seconds
+        }
+      }
+    } catch (error) {
+      console.error("Error polling for events:", error);
+      // Continue polling despite errors
+      if (isDetecting) {
+        setTimeout(pollForEvents, 5000); // Retry after 5 seconds on error
+      }
+    }
+  };
 
   const nextStep = () => {
     setState({ ...state, step: state.step + 1 });
@@ -551,14 +669,62 @@ export default function Home() {
               <h2 className="text-3xl font-bold text-white">
                 Llama 🦙 CCTV Monitoring
               </h2>
-              <button
-                onClick={() => setShowConfig(!showConfig)}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                {showConfig ? <X size={18} /> : <Settings size={18} />}
-                {showConfig ? "Hide Config" : "Configuration"}
-              </button>
+              <div className="flex items-center gap-3">
+                {isDetecting ? (
+                  <button
+                    onClick={stopDetection}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-800 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    <X size={18} />
+                    Stop Detection
+                  </button>
+                ) : (
+                  <button
+                    onClick={startDetection}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-800 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Camera size={18} />
+                    Start Detection
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setShowConfig(!showConfig)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  {showConfig ? <X size={18} /> : <Settings size={18} />}
+                  {showConfig ? "Hide Config" : "Re-configure"}
+                </button>
+
+                {showConfig && (
+                  <button
+                    onClick={() => {
+                      if (isDetecting) {
+                        stopDetection().then(() => startDetection());
+                      } else {
+                        startDetection();
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-800 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <ArrowRight size={18} />
+                    Re-start Detection
+                  </button>
+                )}
+              </div>
             </div>
+
+            {statusMessage && (
+              <div
+                className={`p-3 mb-6 rounded-lg text-white ${
+                  statusMessage.includes("Error")
+                    ? "bg-red-900/50 border border-red-800"
+                    : "bg-green-900/50 border border-green-800"
+                }`}
+              >
+                {statusMessage}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2">
