@@ -12,6 +12,7 @@ from db_writer import DBWriter, EventAlert
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from video_event_detector import VideoEventDetector
 from video_stream_chunker import VideoStreamChunker
@@ -105,11 +106,6 @@ def video_processing_worker(config: Dict[str, Any], stop_event: threading.Event)
                 video_path=video_path, events=events, context=context
             )
             video_chunk_queue.task_done()
-            try:
-                os.remove(video_path)
-                logger.info(f"Removed processed chunk: {video_path}")
-            except OSError as e:
-                logger.error(f"Error removing processed chunk {video_path}: {e}")
         except queue.Empty:
             continue
         except Exception as e:
@@ -290,6 +286,21 @@ async def status():
         "event_detection_queue_size": event_detection_queue.qsize(),
     }
     return {"service_active": service_active, "queue_info": queue_info}
+
+
+@app.get("/video")
+async def get_video(filepath: str):
+    # Verify the file exists
+    if not os.path.isfile(filepath):
+        raise HTTPException(
+            status_code=404, detail=f"Video file at path {filepath} not found"
+        )
+
+    # Get the filename from the path
+    filename = os.path.basename(filepath)
+
+    # Return the video file with the appropriate media type
+    return FileResponse(path=filepath, media_type="video/mp4", filename=filename)
 
 
 def signal_handler(signum, frame):
