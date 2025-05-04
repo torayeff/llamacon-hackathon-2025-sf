@@ -13,6 +13,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import EventLogs from "./event-logs/ui";
 
 type EventToDetect = {
   code: string;
@@ -1024,36 +1025,11 @@ export default function Home() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-5 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm">
+                  <div className="p-5 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm h-full">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       Detected Events
                     </h3>
-                    <div className="max-h-80 overflow-y-auto pr-2">
-                      {state.detectedEvents.length > 0 ? (
-                        <div className="space-y-3">
-                          {state.detectedEvents.map((event, index) => (
-                            <div
-                              key={index}
-                              className="p-3 border border-gray-800 rounded-lg bg-gray-900"
-                            >
-                              <div className="font-medium text-white">
-                                {event.code}
-                              </div>
-                              <div className="text-sm text-gray-300">
-                                {event.description}
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {new Date().toLocaleTimeString()}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-400">
-                          No events detected yet
-                        </p>
-                      )}
-                    </div>
+                    <EventLogs />
                   </div>
                 )}
               </div>
