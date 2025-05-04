@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import {
   Pencil,
@@ -29,7 +29,6 @@ type AppState = {
   previewUrl: string;
   rtspUrl: string;
   eventsToDetect: EventToDetect[];
-  detectedEvents: EventToDetect[];
   streamContext: string;
   chunkDuration: number;
   outputDir: string;
@@ -57,7 +56,6 @@ export default function Home() {
           "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the red light is on.",
       },
     ],
-    detectedEvents: [],
     streamContext:
       "These frames are sampled every 1 second from a video of a robotic arm. The sequences depict a warehouse environment with a robotic arm and a conveyor belt.",
     chunkDuration: 5,
@@ -82,6 +80,9 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastType, setToastType] = useState<"success" | "error">("success");
+
+  // Ref to track if detection should be active based on the current step
+  const detectionShouldBeActive = useRef(false);
 
   // Handle toast visibility
   useEffect(() => {
@@ -110,60 +111,19 @@ export default function Home() {
     []
   );
 
-  // Function to poll for events - moved up and wrapped in useCallback
-  const pollForEvents = useCallback(async () => {
-    try {
-      const response = await fetch("http://localhost:8000/status");
-      if (response.ok) {
-        const data = await response.json();
-
-        // If we have detected events from the server, update our state
-        if (data.detected_events && Array.isArray(data.detected_events)) {
-          const formattedEvents = data.detected_events.map(
-            (event: {
-              event_code: string;
-              event_description: string;
-              detection_guidelines: string;
-            }) => ({
-              code: event.event_code,
-              description: event.event_description,
-              guidelines: event.detection_guidelines,
-            })
-          );
-
-          setState((prevState) => ({
-            ...prevState,
-            detectedEvents: formattedEvents,
-          }));
-        }
-
-        // Continue polling if detection is active
-        if (isDetecting) {
-          setTimeout(pollForEvents, 2000); // Poll every 2 seconds
-        }
-      }
-    } catch (error) {
-      console.error("Error polling for events:", error);
-      // Continue polling despite errors
-      if (isDetecting) {
-        setTimeout(pollForEvents, 5000); // Retry after 5 seconds on error
-      }
-    }
-  }, [isDetecting]);
-
   // Function to start detection - wrapped in useCallback to prevent dependency issues
   const startDetection = useCallback(async () => {
     try {
       // Check if detection is already running
-      const statusResponse = await fetch("http://localhost:8000/status");
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        if (statusData.is_running) {
-          setIsDetecting(true);
-          showToast("Detection is already running", "success");
-          return;
-        }
-      }
+      // const statusResponse = await fetch("http://localhost:8000/status");
+      // if (statusResponse.ok) {
+      //   const statusData = await statusResponse.json();
+      //   if (statusData.is_running) {
+      //     setIsDetecting(true);
+      //     showToast("Detection is already running", "success");
+      //     return;
+      //   }
+      // }
 
       showToast("Starting detection...", "success");
 
@@ -193,9 +153,6 @@ export default function Home() {
       if (response.ok) {
         setIsDetecting(true);
         showToast("Detection started successfully", "success");
-
-        // Start polling for events
-        pollForEvents();
       } else {
         const errorData = await response.json();
         showToast(
@@ -213,20 +170,20 @@ export default function Home() {
         "error"
       );
     }
-  }, [state, showToast, pollForEvents]);
+  }, [state, showToast, setIsDetecting]);
 
   // Function to stop detection - wrapped in useCallback to prevent dependency issues
   const stopDetection = useCallback(async () => {
     try {
       // Check if detection is actually running before stopping
-      const statusResponse = await fetch("http://localhost:8000/status");
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        if (!statusData.is_running) {
-          setIsDetecting(false);
-          return; // No need to stop if not running
-        }
-      }
+      // const statusResponse = await fetch("http://localhost:8000/status");
+      // if (statusResponse.ok) {
+      //   const statusData = await statusResponse.json();
+      //   if (!statusData.is_running) {
+      //     setIsDetecting(false);
+      //     return; // No need to stop if not running
+      //   }
+      // }
 
       showToast("Stopping detection...", "success");
       const response = await fetch("http://localhost:8000/stop", {
@@ -250,7 +207,7 @@ export default function Home() {
       // Even if there's an error, assume detection is stopped
       setIsDetecting(false);
     }
-  }, [showToast]);
+  }, [showToast, setIsDetecting]);
 
   // Function to restart detection with new parameters
   const restartDetection = useCallback(async () => {
@@ -270,17 +227,39 @@ export default function Home() {
     }
   }, [stopDetection, startDetection, showToast]);
 
-  // Auto-start detection when page loads and stop when unloaded
+  // Effect to automatically start/stop detection when entering/leaving step 5
   useEffect(() => {
     if (state.step === 5) {
-      // Only start detection on the monitoring page
-      startDetection();
-
-      // Clean up function will run when component unmounts
-      return () => {
+      // We are on the monitoring step.
+      if (!detectionShouldBeActive.current) {
+        // Start detection only if we just entered step 5
+        console.log("Effect: Entering Step 5, starting detection.");
+        startDetection();
+        detectionShouldBeActive.current = true;
+      }
+      // If effect re-runs while already on step 5 (due to state changes causing startDetection to change),
+      // do nothing here. Rely on the manual 'Restart' button for applying setting changes.
+    } else {
+      // We are not on the monitoring step.
+      if (detectionShouldBeActive.current) {
+        // Stop detection only if we just left step 5
+        console.log("Effect: Leaving Step 5, stopping detection.");
         stopDetection();
-      };
+        detectionShouldBeActive.current = false;
+      }
     }
+
+    // Cleanup function: Ensure detection is stopped if component unmounts while active
+    return () => {
+      if (detectionShouldBeActive.current) {
+        console.log(
+          "Effect Cleanup: Unmounting on Step 5, stopping detection."
+        );
+        stopDetection();
+        detectionShouldBeActive.current = false;
+      }
+    };
+    // Dependencies remain the same. The logic inside handles the re-runs.
   }, [state.step, startDetection, stopDetection]);
 
   const nextStep = () => {
