@@ -2,8 +2,9 @@
   "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
   "base_url": "https://api.llama.com/compat/v1/",
   "rtsp_url": "rtsp://localhost:8554/hackathon",
+  "preview_url": "http://localhost:1984/stream.html?src=hackathon",
   "chunk_duration": 5,
-  "output_dir": "../localdata/video_chunks",
+  "output_dir": "/Users/torayeff/lab/localdata/video_chunks",
   "context": "These frames are sampled every 1 second from a video of a robotic arm. The sequences depict a warehouse environment with a robotic arm and a conveyor belt.",
   "events": [
     {

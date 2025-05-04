@@ -27,6 +27,10 @@ type AppState = {
   eventsToDetect: EventToDetect[];
   detectedEvents: EventToDetect[];
   streamContext: string;
+  chunkDuration: number;
+  outputDir: string;
+  llamaModel: string;
+  baseUrl: string;
 };
 
 export default function Home() {
@@ -34,9 +38,28 @@ export default function Home() {
     step: 1,
     previewUrl: "http://localhost:1984/stream.html?src=hackathon",
     rtspUrl: "rtsp://localhost:8554/hackathon",
-    eventsToDetect: [],
+    eventsToDetect: [
+      {
+        code: "robot-is-idle",
+        description:
+          "The robotic arm hasn't moved for the whole duration of the video.",
+        guidelines:
+          "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the green light is on.",
+      },
+      {
+        code: "robot-in-error",
+        description: "The robot is in error state.",
+        guidelines:
+          "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the red light is on.",
+      },
+    ],
     detectedEvents: [],
-    streamContext: "",
+    streamContext:
+      "These frames are sampled every 1 second from a video of a robotic arm. The sequences depict a warehouse environment with a robotic arm and a conveyor belt.",
+    chunkDuration: 5,
+    outputDir: "/Users/torayeff/lab/localdata/video_chunks",
+    llamaModel: "Llama-4-Maverick-17B-128E-Instruct-FP8",
+    baseUrl: "https://api.llama.com/compat/v1/",
   });
 
   const [newEvent, setNewEvent] = useState<EventToDetect>({
@@ -59,6 +82,13 @@ export default function Home() {
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (state.previewUrl && state.rtspUrl) {
+      nextStep();
+    }
+  };
+
+  const handleLlamaSetupSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (state.llamaModel && state.baseUrl) {
       nextStep();
     }
   };
@@ -147,15 +177,85 @@ export default function Home() {
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-2xl p-8 shadow-xl">
               <div className="flex items-center gap-4 mb-6">
                 <div className="p-3 bg-indigo-800/30 rounded-full">
+                  <Settings size={28} className="text-indigo-400" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">
+                  Llama API Setup
+                </h2>
+              </div>
+
+              <p className="text-gray-400 mb-8">
+                Configure the Llama AI model settings for video event detection.
+              </p>
+
+              <form onSubmit={handleLlamaSetupSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                  <label className="block text-sm font-medium text-gray-300 md:col-span-1">
+                    Model
+                  </label>
+                  <div className="md:col-span-3">
+                    <input
+                      type="text"
+                      value={state.llamaModel}
+                      onChange={(e) =>
+                        setState({ ...state, llamaModel: e.target.value })
+                      }
+                      className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                      placeholder="Llama-4-Maverick-17B-128E-Instruct-FP8"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                  <label className="block text-sm font-medium text-gray-300 md:col-span-1">
+                    Base URL
+                  </label>
+                  <div className="md:col-span-3">
+                    <input
+                      type="text"
+                      value={state.baseUrl}
+                      onChange={(e) =>
+                        setState({ ...state, baseUrl: e.target.value })
+                      }
+                      className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                      placeholder="https://api.llama.com/compat/v1/"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setState({ ...state, step: state.step - 1 })}
+                    className="px-4 py-2 flex items-center gap-2 text-gray-300 hover:text-white transition-colors focus:outline-none"
+                  >
+                    <ArrowLeft size={16} />
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-3 bg-indigo-800 text-white rounded-lg hover:bg-indigo-900 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-700"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="max-w-3xl mx-auto p-8 min-h-[calc(100vh-2rem)] flex flex-col justify-center">
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-2xl p-8 shadow-xl">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 bg-indigo-800/30 rounded-full">
                   <Camera size={28} className="text-indigo-400" />
                 </div>
                 <h2 className="text-3xl font-bold text-white">Camera Setup</h2>
               </div>
-
-              <p className="text-gray-400 mb-8">
-                Your camera URLs have been pre-configured for this demo. You can
-                modify them if needed.
-              </p>
 
               <form onSubmit={handleUrlSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
@@ -194,6 +294,45 @@ export default function Home() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                  <label className="block text-sm font-medium text-gray-300 md:col-span-1">
+                    Chunk Duration (s)
+                  </label>
+                  <div className="md:col-span-3">
+                    <input
+                      type="number"
+                      value={state.chunkDuration}
+                      onChange={(e) =>
+                        setState({
+                          ...state,
+                          chunkDuration: parseInt(e.target.value) || 5,
+                        })
+                      }
+                      className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                      placeholder="5"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                  <label className="block text-sm font-medium text-gray-300 md:col-span-1">
+                    Output Directory
+                  </label>
+                  <div className="md:col-span-3">
+                    <input
+                      type="text"
+                      value={state.outputDir}
+                      onChange={(e) =>
+                        setState({ ...state, outputDir: e.target.value })
+                      }
+                      className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                      placeholder="/Users/torayeff/lab/localdata/video_chunks/"
+                      required
+                    />
+                  </div>
+                </div>
+
                 <div className="flex justify-between pt-4">
                   <button
                     type="button"
@@ -215,7 +354,7 @@ export default function Home() {
           </div>
         );
 
-      case 3:
+      case 4:
         return (
           <div className="max-w-4xl mx-auto p-8 min-h-[calc(100vh-2rem)] flex flex-col">
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-2xl p-8 shadow-xl">
@@ -405,7 +544,7 @@ export default function Home() {
           </div>
         );
 
-      case 4:
+      case 5:
         return (
           <div className="max-w-7xl mx-auto p-6">
             <div className="flex items-center justify-between mb-8">
@@ -439,16 +578,6 @@ export default function Home() {
                   <p className="text-sm text-gray-300">
                     RTSP URL: {state.rtspUrl}
                   </p>
-                  {state.streamContext && (
-                    <div className="mt-4 pt-4 border-t border-gray-800">
-                      <h4 className="text-md font-medium mb-2 text-white">
-                        Context
-                      </h4>
-                      <p className="text-sm text-gray-300">
-                        {state.streamContext}
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -460,22 +589,44 @@ export default function Home() {
                     </h3>
 
                     <div className="space-y-4">
+                      {/* Llama API Settings - Moved to be first */}
                       <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-300">
-                          Stream Context
-                        </label>
-                        <textarea
-                          value={state.streamContext}
-                          onChange={(e) =>
-                            setState({
-                              ...state,
-                              streamContext: e.target.value,
-                            })
-                          }
-                          className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                          placeholder="Describe the environment..."
-                          rows={3}
-                        />
+                        <h4 className="text-md font-medium mb-3 text-white">
+                          Llama API Settings
+                        </h4>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1 text-gray-300">
+                              Model
+                            </label>
+                            <input
+                              type="text"
+                              value={state.llamaModel}
+                              onChange={(e) =>
+                                setState({
+                                  ...state,
+                                  llamaModel: e.target.value,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="Llama-4-Maverick-17B-128E-Instruct-FP8"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1 text-gray-300">
+                              Base URL
+                            </label>
+                            <input
+                              type="text"
+                              value={state.baseUrl}
+                              onChange={(e) =>
+                                setState({ ...state, baseUrl: e.target.value })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="https://api.llama.com/compat/v1/"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       {/* URL Settings */}
@@ -515,10 +666,105 @@ export default function Home() {
                               placeholder="rtsp://localhost:8554/hackathon"
                             />
                           </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1 text-gray-300">
+                              Chunk Duration (s)
+                            </label>
+                            <input
+                              type="number"
+                              value={state.chunkDuration}
+                              onChange={(e) =>
+                                setState({
+                                  ...state,
+                                  chunkDuration: parseInt(e.target.value) || 5,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="5"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1 text-gray-300">
+                              Output Directory
+                            </label>
+                            <input
+                              type="text"
+                              value={state.outputDir}
+                              onChange={(e) =>
+                                setState({
+                                  ...state,
+                                  outputDir: e.target.value,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="/Users/torayeff/lab/localdata/video_chunks/"
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      {/* Edit Event Form */}
+                      {/* Stream Context - Moved to be above the Events section */}
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h4 className="text-md font-medium mb-3 text-white">
+                          Stream Context
+                        </h4>
+                        <textarea
+                          value={state.streamContext}
+                          onChange={(e) =>
+                            setState({
+                              ...state,
+                              streamContext: e.target.value,
+                            })
+                          }
+                          className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                          placeholder="Describe the environment..."
+                          rows={3}
+                        />
+                      </div>
+
+                      {/* Events List - Moved before Edit Event Form */}
+                      {state.eventsToDetect.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <h4 className="text-md font-medium mb-3 text-white">
+                            Events
+                          </h4>
+                          <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
+                            {state.eventsToDetect.map((event, index) => (
+                              <div
+                                key={index}
+                                className="p-2 border border-gray-800 rounded-lg bg-gray-900 flex justify-between items-center"
+                              >
+                                <div>
+                                  <div className="font-medium text-sm text-white">
+                                    {event.code}
+                                  </div>
+                                  <div className="text-xs text-gray-400">
+                                    {event.description}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => handleEditEvent(index)}
+                                    className="p-1 bg-indigo-800 text-white rounded hover:bg-indigo-900 transition-colors"
+                                    aria-label="Edit event"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteEvent(index)}
+                                    className="p-1 bg-red-800 text-white rounded hover:bg-red-900 transition-colors"
+                                    aria-label="Delete event"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Edit Event Form - Now after Events List */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           {editingEvent !== null
@@ -609,48 +855,6 @@ export default function Home() {
                           </div>
                         </div>
                       </div>
-
-                      {/* Events List */}
-                      {state.eventsToDetect.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-gray-700">
-                          <h4 className="text-md font-medium mb-3 text-white">
-                            Events
-                          </h4>
-                          <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
-                            {state.eventsToDetect.map((event, index) => (
-                              <div
-                                key={index}
-                                className="p-2 border border-gray-800 rounded-lg bg-gray-900 flex justify-between items-center"
-                              >
-                                <div>
-                                  <div className="font-medium text-sm text-white">
-                                    {event.code}
-                                  </div>
-                                  <div className="text-xs text-gray-400">
-                                    {event.description}
-                                  </div>
-                                </div>
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => handleEditEvent(index)}
-                                    className="p-1 bg-indigo-800 text-white rounded hover:bg-indigo-900 transition-colors"
-                                    aria-label="Edit event"
-                                  >
-                                    <Pencil size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteEvent(index)}
-                                    className="p-1 bg-red-800 text-white rounded hover:bg-red-900 transition-colors"
-                                    aria-label="Delete event"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ) : (
