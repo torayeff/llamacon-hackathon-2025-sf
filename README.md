@@ -1,6 +1,6 @@
 # LlamaCon Hackathon 2025 – San Francisco
 
-## Project Title: ACCRO – AI CCTV Control Room Operator
+## Project Title: Llama – AI CCTV Control Room Operator
 
 ### Project Objectives
 1. Integrate RTSP stream
@@ -59,3 +59,9 @@ flowchart LR
   DBWriter --> DB
 
 ```
+
+### Frontend
+1. Main page (Llama CCTV Operator image) greets: Hello I am Llama CCTV Operatore. I will help you monitor events.
+2. Asks to start with putting preview URL and RTSP URL
+3. Then asks to add events to detect: event-code, event-description, detection-guidelines. Asks if I want to add more. If yes, then new fields appear if not then goes to the monitoring page.
+4. Monitoring page: video player, events editor, detected events.
