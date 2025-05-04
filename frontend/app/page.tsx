@@ -37,29 +37,31 @@ type AppState = {
 };
 
 export default function Home() {
+  const initialEvents: EventToDetect[] = [
+    {
+      code: "robot-is-idle",
+      description:
+        "The robotic arm hasn't moved for the whole duration of the video.",
+      guidelines:
+        "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the green light is on.",
+    },
+    {
+      code: "robot-in-error",
+      description: "The robot is in error state.",
+      guidelines:
+        "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the red light is on.",
+    },
+  ];
+
   const [state, setState] = useState<AppState>({
     step: 1,
     previewUrl: "http://localhost:1984/stream.html?src=hackathon",
     rtspUrl: "rtsp://localhost:8554/hackathon",
-    eventsToDetect: [
-      {
-        code: "robot-is-idle",
-        description:
-          "The robotic arm hasn't moved for the whole duration of the video.",
-        guidelines:
-          "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the green light is on.",
-      },
-      {
-        code: "robot-in-error",
-        description: "The robot is in error state.",
-        guidelines:
-          "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the red light is on.",
-      },
-    ],
+    eventsToDetect: initialEvents,
     streamContext:
-      "These frames are sampled every 1 second from a video of a robotic arm. The sequences depict a warehouse environment with a robotic arm and a conveyor belt.",
+      "Outdoor security camera footage showing a parking lot area. Focus on detecting people entering or leaving vehicles, or walking through the lot.",
     chunkDuration: 5,
-    outputDir: "/Users/torayeff/lab/localdata/video_chunks",
+    outputDir: "/Users/torayeff/lab/localdata/video_chunks/",
     llamaModel: "Llama-4-Maverick-17B-128E-Instruct-FP8",
     baseUrl: "https://api.llama.com/compat/v1/",
   });
@@ -82,6 +84,10 @@ export default function Home() {
   const [toastType, setToastType] = useState<"success" | "error">("success");
 
   const detectionShouldBeActive = useRef(false);
+
+  // State for the video modal (lifted from EventLogs)
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [modalVideoUrl, setModalVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let toastTimer: NodeJS.Timeout;
@@ -223,21 +229,21 @@ export default function Home() {
   }, [state.step, startDetection, stopDetection]);
 
   const nextStep = () => {
+    if (state.step === 4) {
+      detectionShouldBeActive.current = true;
+      startDetection();
+    }
     setState({ ...state, step: state.step + 1 });
   };
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (state.previewUrl && state.rtspUrl) {
-      nextStep();
-    }
+    nextStep();
   };
 
   const handleLlamaSetupSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (state.llamaModel && state.baseUrl) {
-      nextStep();
-    }
+    nextStep();
   };
 
   const handleAddEvent = (e: React.FormEvent) => {
@@ -267,6 +273,9 @@ export default function Home() {
       ...state,
       eventsToDetect: updatedEvents,
     });
+    if (editingEvent?.index === index) {
+      cancelEdit();
+    }
   };
 
   const handleEditEvent = (index: number) => {
@@ -280,6 +289,18 @@ export default function Home() {
   const cancelEdit = () => {
     setEditingEvent(null);
     setNewEvent({ code: "", description: "", guidelines: "" });
+  };
+
+  // Function to open the video modal (passed to EventLogs)
+  const handleOpenVideo = (url: string) => {
+    setModalVideoUrl(url);
+    setIsModalOpen(true);
+  };
+
+  // Function to close the video modal
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setModalVideoUrl(null);
   };
 
   const renderStep = () => {
@@ -691,379 +712,424 @@ export default function Home() {
 
       case 5:
         return (
-          <div className="max-w-7xl mx-auto p-6 h-screen flex flex-col">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-white">
-                Llama 🦙 CCTV Monitoring
-              </h2>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowConfig(!showConfig)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  {showConfig ? <X size={18} /> : <SettingsIcon size={18} />}
-                  {showConfig ? "Close Settings" : "Settings"}
-                </button>
-              </div>
-            </div>
-
-            {statusMessage && toastVisible && (
-              <div
-                className={`fixed top-6 right-6 p-3 rounded-lg text-white shadow-lg max-w-md z-50 flex items-center gap-2 transform transition-all duration-300 ${
-                  toastType === "error"
-                    ? "bg-red-900/80 border border-red-800"
-                    : "bg-green-900/80 border border-green-800"
-                } ${
-                  toastVisible
-                    ? "translate-y-0 opacity-100"
-                    : "-translate-y-4 opacity-0"
-                }`}
-              >
-                {toastType === "error" ? (
-                  <AlertCircle size={20} className="text-red-300" />
-                ) : (
-                  <CheckCircle size={20} className="text-green-300" />
-                )}
-                <span>{statusMessage}</span>
-                <button
-                  onClick={() => setToastVisible(false)}
-                  className="ml-auto p-1 rounded-full hover:bg-black/20"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 flex-grow overflow-hidden">
-              <div className="lg:col-span-3 flex flex-col h-full overflow-hidden">
-                <div className="flex-grow rounded-2xl overflow-hidden border border-gray-800 flex-shrink-0 relative">
-                  <iframe
-                    src={state.previewUrl}
-                    className="absolute inset-0 w-full h-full"
-                    title="Camera Preview"
-                    allow="autoplay; fullscreen"
-                  ></iframe>
+          <>
+            <div className="max-w-7xl mx-auto p-6 h-screen flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-3xl font-bold text-white">
+                  Llama 🦙 CCTV Monitoring
+                </h2>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowConfig(!showConfig)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    {showConfig ? <X size={18} /> : <SettingsIcon size={18} />}
+                    {showConfig ? "Close Settings" : "Settings"}
+                  </button>
                 </div>
-                <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm mt-4 flex-shrink-0">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-white">
-                      Video Information
-                    </h3>
-                    {isDetecting && (
-                      <div className="flex items-center gap-2 px-3 py-1 bg-green-900/50 border border-green-800 rounded-lg text-sm text-green-300">
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        <span>Detection in progress</span>
-                      </div>
-                    )}
+              </div>
+
+              {statusMessage && toastVisible && (
+                <div
+                  className={`fixed top-6 right-6 p-3 rounded-lg text-white shadow-lg max-w-md z-50 flex items-center gap-2 transform transition-all duration-300 ${
+                    toastType === "error"
+                      ? "bg-red-900/80 border border-red-800"
+                      : "bg-green-900/80 border border-green-800"
+                  } ${
+                    toastVisible
+                      ? "translate-y-0 opacity-100"
+                      : "-translate-y-4 opacity-0"
+                  }`}
+                >
+                  {toastType === "error" ? (
+                    <AlertCircle size={20} className="text-red-300" />
+                  ) : (
+                    <CheckCircle size={20} className="text-green-300" />
+                  )}
+                  <span>{statusMessage}</span>
+                  <button
+                    onClick={() => setToastVisible(false)}
+                    className="ml-auto p-1 rounded-full hover:bg-black/20"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 flex-grow overflow-hidden">
+                <div className="lg:col-span-3 flex flex-col h-full overflow-hidden">
+                  <div className="flex-grow rounded-2xl overflow-hidden border border-gray-800 flex-shrink-0 relative">
+                    <iframe
+                      src={state.previewUrl}
+                      className="absolute inset-0 w-full h-full"
+                      title="Camera Preview"
+                      allow="autoplay; fullscreen"
+                    ></iframe>
                   </div>
-                  <p className="text-sm text-gray-300 mt-2">
-                    RTSP URL: {state.rtspUrl}
-                  </p>
+                  <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm mt-4 flex-shrink-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-white">
+                        Video Information
+                      </h3>
+                      {isDetecting && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-green-900/50 border border-green-800 rounded-lg text-sm text-green-300">
+                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                          <span>Detection in progress</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-300 mt-2">
+                      RTSP URL: {state.rtspUrl}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="lg:col-span-2 h-full overflow-hidden flex flex-col">
-                {showConfig ? (
-                  <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm overflow-y-auto h-full flex flex-col">
-                    <h3 className="text-lg font-semibold mb-3 text-white">
-                      Settings
-                    </h3>
+                <div className="lg:col-span-2 h-full overflow-hidden flex flex-col">
+                  {showConfig ? (
+                    <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm overflow-y-auto h-full flex flex-col">
+                      <h3 className="text-lg font-semibold mb-3 text-white">
+                        Settings
+                      </h3>
 
-                    <div className="space-y-4 flex-grow">
-                      <div>
-                        <h4 className="text-md font-medium mb-3 text-white">
-                          Llama API Settings
-                        </h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              Model
-                            </label>
-                            <input
-                              type="text"
-                              value={state.llamaModel}
-                              onChange={(e) =>
-                                setState({
-                                  ...state,
-                                  llamaModel: e.target.value,
-                                })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="Llama-4-Maverick-17B-128E-Instruct-FP8"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              Base URL
-                            </label>
-                            <input
-                              type="text"
-                              value={state.baseUrl}
-                              onChange={(e) =>
-                                setState({ ...state, baseUrl: e.target.value })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="https://api.llama.com/compat/v1/"
-                            />
+                      <div className="space-y-4 flex-grow">
+                        <div>
+                          <h4 className="text-md font-medium mb-3 text-white">
+                            Llama API Settings
+                          </h4>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                Model
+                              </label>
+                              <input
+                                type="text"
+                                value={state.llamaModel}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    llamaModel: e.target.value,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="Llama-4-Maverick-17B-128E-Instruct-FP8"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                Base URL
+                              </label>
+                              <input
+                                type="text"
+                                value={state.baseUrl}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    baseUrl: e.target.value,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="https://api.llama.com/compat/v1/"
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <h4 className="text-md font-medium mb-3 text-white">
-                          Stream URLs
-                        </h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              Preview URL
-                            </label>
-                            <input
-                              type="text"
-                              value={state.previewUrl}
-                              onChange={(e) =>
-                                setState({
-                                  ...state,
-                                  previewUrl: e.target.value,
-                                })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="http://localhost:1984/stream.html?src=hackathon"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              RTSP URL
-                            </label>
-                            <input
-                              type="text"
-                              value={state.rtspUrl}
-                              onChange={(e) =>
-                                setState({ ...state, rtspUrl: e.target.value })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="rtsp://localhost:8554/hackathon"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              Chunk Duration (s)
-                            </label>
-                            <input
-                              type="number"
-                              value={state.chunkDuration}
-                              onChange={(e) =>
-                                setState({
-                                  ...state,
-                                  chunkDuration: parseInt(e.target.value) || 5,
-                                })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="5"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-300">
-                              Output Directory
-                            </label>
-                            <input
-                              type="text"
-                              value={state.outputDir}
-                              onChange={(e) =>
-                                setState({
-                                  ...state,
-                                  outputDir: e.target.value,
-                                })
-                              }
-                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                              placeholder="/Users/torayeff/lab/localdata/video_chunks/"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <h4 className="text-md font-medium mb-3 text-white">
-                          Stream Context
-                        </h4>
-                        <textarea
-                          value={state.streamContext}
-                          onChange={(e) =>
-                            setState({
-                              ...state,
-                              streamContext: e.target.value,
-                            })
-                          }
-                          className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                          placeholder="Describe the environment..."
-                          rows={3}
-                        />
-                      </div>
-
-                      {state.eventsToDetect.length > 0 && (
                         <div className="mt-4 pt-4 border-t border-gray-700">
                           <h4 className="text-md font-medium mb-3 text-white">
-                            Events
+                            Stream URLs
                           </h4>
-                          <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
-                            {state.eventsToDetect.map((event, index) => (
-                              <div
-                                key={index}
-                                className="p-2 border border-gray-800 rounded-lg bg-gray-900 flex justify-between items-center"
-                              >
-                                <div>
-                                  <div className="font-medium text-sm text-white">
-                                    {event.code}
-                                  </div>
-                                  <div className="text-xs text-gray-400">
-                                    {event.description}
-                                  </div>
-                                </div>
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => handleEditEvent(index)}
-                                    className="p-1 bg-indigo-800 text-white rounded hover:bg-indigo-900 transition-colors"
-                                    aria-label="Edit event"
-                                  >
-                                    <Pencil size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteEvent(index)}
-                                    className="p-1 bg-red-800 text-white rounded hover:bg-red-900 transition-colors"
-                                    aria-label="Delete event"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                Preview URL
+                              </label>
+                              <input
+                                type="text"
+                                value={state.previewUrl}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    previewUrl: e.target.value,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="http://localhost:1984/stream.html?src=hackathon"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                RTSP URL
+                              </label>
+                              <input
+                                type="text"
+                                value={state.rtspUrl}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    rtspUrl: e.target.value,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="rtsp://localhost:8554/hackathon"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                Chunk Duration (s)
+                              </label>
+                              <input
+                                type="number"
+                                value={state.chunkDuration}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    chunkDuration:
+                                      parseInt(e.target.value) || 5,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="5"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1 text-gray-300">
+                                Output Directory
+                              </label>
+                              <input
+                                type="text"
+                                value={state.outputDir}
+                                onChange={(e) =>
+                                  setState({
+                                    ...state,
+                                    outputDir: e.target.value,
+                                  })
+                                }
+                                className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                                placeholder="/Users/torayeff/lab/localdata/video_chunks/"
+                              />
+                            </div>
                           </div>
                         </div>
-                      )}
 
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <h4 className="text-md font-medium mb-3 text-white">
-                          {editingEvent !== null
-                            ? "Edit Event"
-                            : "Add New Event"}
-                        </h4>
-                        <div className="space-y-3">
-                          <input
-                            type="text"
-                            value={newEvent.code}
-                            onChange={(e) =>
-                              setNewEvent({ ...newEvent, code: e.target.value })
-                            }
-                            className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                            placeholder="Event Code"
-                          />
-                          <input
-                            type="text"
-                            value={newEvent.description}
-                            onChange={(e) =>
-                              setNewEvent({
-                                ...newEvent,
-                                description: e.target.value,
-                              })
-                            }
-                            className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                            placeholder="Event Description"
-                          />
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <h4 className="text-md font-medium mb-3 text-white">
+                            Stream Context
+                          </h4>
                           <textarea
-                            value={newEvent.guidelines}
+                            value={state.streamContext}
                             onChange={(e) =>
-                              setNewEvent({
-                                ...newEvent,
-                                guidelines: e.target.value,
+                              setState({
+                                ...state,
+                                streamContext: e.target.value,
                               })
                             }
-                            className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
-                            placeholder="Detection Guidelines"
-                            rows={2}
+                            className="w-full p-3 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                            placeholder="Describe the environment..."
+                            rows={3}
                           />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                if (newEvent.code && newEvent.description) {
-                                  if (editingEvent !== null) {
-                                    const updatedEvents = [
-                                      ...state.eventsToDetect,
-                                    ];
-                                    updatedEvents[editingEvent.index] = {
-                                      ...newEvent,
-                                    };
-                                    setState({
-                                      ...state,
-                                      eventsToDetect: updatedEvents,
-                                    });
-                                    setEditingEvent(null);
-                                  } else {
-                                    setState({
-                                      ...state,
-                                      eventsToDetect: [
+                        </div>
+
+                        {state.eventsToDetect.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-700">
+                            <h4 className="text-md font-medium mb-3 text-white">
+                              Events
+                            </h4>
+                            <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
+                              {state.eventsToDetect.map((event, index) => (
+                                <div
+                                  key={index}
+                                  className="p-2 border border-gray-800 rounded-lg bg-gray-900 flex justify-between items-center"
+                                >
+                                  <div>
+                                    <div className="font-medium text-sm text-white">
+                                      {event.code}
+                                    </div>
+                                    <div className="text-xs text-gray-400">
+                                      {event.description}
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => handleEditEvent(index)}
+                                      className="p-1 bg-indigo-800 text-white rounded hover:bg-indigo-900 transition-colors"
+                                      aria-label="Edit event"
+                                    >
+                                      <Pencil size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteEvent(index)}
+                                      className="p-1 bg-red-800 text-white rounded hover:bg-red-900 transition-colors"
+                                      aria-label="Delete event"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <h4 className="text-md font-medium mb-3 text-white">
+                            {editingEvent !== null
+                              ? "Edit Event"
+                              : "Add New Event"}
+                          </h4>
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={newEvent.code}
+                              onChange={(e) =>
+                                setNewEvent({
+                                  ...newEvent,
+                                  code: e.target.value,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="Event Code"
+                            />
+                            <input
+                              type="text"
+                              value={newEvent.description}
+                              onChange={(e) =>
+                                setNewEvent({
+                                  ...newEvent,
+                                  description: e.target.value,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="Event Description"
+                            />
+                            <textarea
+                              value={newEvent.guidelines}
+                              onChange={(e) =>
+                                setNewEvent({
+                                  ...newEvent,
+                                  guidelines: e.target.value,
+                                })
+                              }
+                              className="w-full p-2 border border-gray-800 rounded-lg bg-gray-900 text-white focus:ring-2 focus:ring-indigo-700 focus:border-transparent"
+                              placeholder="Detection Guidelines"
+                              rows={2}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (newEvent.code && newEvent.description) {
+                                    if (editingEvent !== null) {
+                                      const updatedEvents = [
                                         ...state.eventsToDetect,
-                                        { ...newEvent },
-                                      ],
+                                      ];
+                                      updatedEvents[editingEvent.index] = {
+                                        ...newEvent,
+                                      };
+                                      setState({
+                                        ...state,
+                                        eventsToDetect: updatedEvents,
+                                      });
+                                      setEditingEvent(null);
+                                    } else {
+                                      setState({
+                                        ...state,
+                                        eventsToDetect: [
+                                          ...state.eventsToDetect,
+                                          { ...newEvent },
+                                        ],
+                                      });
+                                    }
+                                    setNewEvent({
+                                      code: "",
+                                      description: "",
+                                      guidelines: "",
                                     });
                                   }
-                                  setNewEvent({
-                                    code: "",
-                                    description: "",
-                                    guidelines: "",
-                                  });
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-indigo-800 text-white text-sm rounded hover:bg-indigo-900 transition-colors"
-                            >
-                              {editingEvent !== null ? "Update" : "Add"}
-                            </button>
-                            {editingEvent !== null && (
-                              <button
-                                onClick={cancelEdit}
-                                className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded hover:bg-gray-800 transition-colors"
+                                }}
+                                className="px-3 py-1.5 bg-indigo-800 text-white text-sm rounded hover:bg-indigo-900 transition-colors"
                               >
-                                Cancel
+                                {editingEvent !== null ? "Update" : "Add"}
                               </button>
-                            )}
+                              {editingEvent !== null && (
+                                <button
+                                  onClick={cancelEdit}
+                                  className="px-3 py-1.5 bg-gray-700 text-white text-sm rounded hover:bg-gray-800 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="mt-6 pt-4 border-t border-gray-700 flex-shrink-0 space-y-3">
-                      <button
-                        onClick={restartDetection}
-                        className="w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <RefreshCw size={16} />
-                        Restart Detection with New Settings
-                      </button>
-
-                      {isDetecting && (
+                      <div className="mt-6 pt-4 border-t border-gray-700 flex-shrink-0 space-y-3">
                         <button
-                          onClick={stopDetection}
-                          className="w-full py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                          onClick={restartDetection}
+                          className="w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
                         >
-                          <X size={16} />
-                          Stop Detection
+                          <RefreshCw size={16} />
+                          Restart Detection with New Settings
                         </button>
-                      )}
+
+                        {isDetecting && (
+                          <button
+                            onClick={stopDetection}
+                            className="w-full py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <X size={16} />
+                            Stop Detection
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm h-full flex flex-col overflow-hidden">
-                    <h3 className="text-lg font-semibold mb-3 text-white flex-shrink-0">
-                      Detected Events
-                    </h3>
-                    <div className="overflow-hidden flex-grow">
-                      <EventLogs />
+                  ) : (
+                    <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm h-full flex flex-col overflow-hidden">
+                      <h3 className="text-lg font-semibold mb-3 text-white flex-shrink-0">
+                        Detected Events
+                      </h3>
+                      <div className="overflow-hidden flex-grow">
+                        <EventLogs onOpenVideo={handleOpenVideo} />
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+
+            {isModalOpen && modalVideoUrl && (
+              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                <div className="relative bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl aspect-video">
+                  <button
+                    onClick={closeModal}
+                    className="absolute -top-2 -right-2 z-10 bg-red-600 hover:bg-red-700 text-white rounded-full p-1.5 transition-colors"
+                    aria-label="Close video modal"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <video
+                    key={modalVideoUrl}
+                    className="w-full h-full rounded-lg"
+                    src={modalVideoUrl}
+                    controls
+                    autoPlay
+                    onError={(e) => {
+                      console.error("Video player error:", e);
+                      showToast("Error loading video.", "error");
+                      closeModal();
+                    }}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+                <div
+                  className="absolute inset-0 -z-10"
+                  onClick={closeModal}
+                ></div>
+              </div>
+            )}
+          </>
         );
 
       default:
@@ -1072,6 +1138,42 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-black text-white">{renderStep()}</main>
+    <main className="min-h-screen bg-black text-white">
+      {renderStep()}
+
+      {/* Video Modal - Rendered at the top level, outside renderStep */}
+      {isModalOpen && modalVideoUrl && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="relative bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl aspect-video">
+            {/* Close Button */}
+            <button
+              onClick={closeModal}
+              className="absolute -top-2 -right-2 z-10 bg-red-600 hover:bg-red-700 text-white rounded-full p-1.5 transition-colors"
+              aria-label="Close video modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Video Player */}
+            <video
+              key={modalVideoUrl} // Add key to force re-render on URL change
+              className="w-full h-full rounded-lg"
+              src={modalVideoUrl}
+              controls
+              autoPlay
+              onError={(e) => {
+                console.error("Video player error:", e);
+                showToast("Error loading video.", "error"); // Use showToast for consistency
+                closeModal(); // Close modal on video error
+              }}
+            >
+              Your browser does not support the video tag.
+            </video>
+          </div>
+          {/* Click outside to close */}
+          <div className="absolute inset-0 -z-10" onClick={closeModal}></div>
+        </div>
+      )}
+    </main>
   );
 }

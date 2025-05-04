@@ -2,8 +2,16 @@
 
 import { fetchData, DataItem } from "./data";
 import { useState, useEffect } from "react";
+import { AlertCircle, Play, Check, Database } from "lucide-react";
 
-export default function EventLogs() {
+// Define prop types
+interface EventLogsProps {
+  onOpenVideo: (url: string) => void;
+}
+
+export default function EventLogs({
+  onOpenVideo, // Use this prop
+}: EventLogsProps) {
   const [data, setData] = useState<DataItem[]>([]);
   const [latestEventId, setLatestEventId] = useState<number | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<Date>(new Date(0));
@@ -83,28 +91,14 @@ export default function EventLogs() {
     // Format the URL to use the video endpoint with filepath as query parameter
     const videoEndpoint = "http://localhost:8000/video";
     const formattedUrl = `${videoEndpoint}?filepath=${encodeURIComponent(url)}`;
-    window.open(formattedUrl, "_blank", "width=800,height=600");
+    onOpenVideo(formattedUrl); // Call the prop function passed from parent
   };
 
   return (
-    <div className="h-full">
+    <div className="h-full relative">
       {fetchError && (
         <div className="bg-red-900/50 border border-red-800 rounded-lg p-3 mb-3 text-sm text-red-200 flex items-center gap-2">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
+          <AlertCircle className="w-4 h-4" />
           {fetchError}
         </div>
       )}
@@ -190,19 +184,7 @@ export default function EventLogs() {
                       onClick={() => openVideo(event.event_video_url)}
                       className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs rounded flex items-center gap-1.5 transition-colors"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="m10 7 5 5-5 5V7z" />
-                      </svg>
+                      <Play className="w-3.5 h-3.5" />
                       View Video
                     </button>
                   )}
@@ -213,19 +195,7 @@ export default function EventLogs() {
                       onClick={() => acknowledgeEvent(event.event_id)}
                       className="px-3 py-1.5 text-xs rounded flex items-center gap-1.5 transition-colors bg-amber-600 hover:bg-amber-700 text-white"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
+                      <Check className="w-3.5 h-3.5" />
                       Acknowledge
                     </button>
                   )}
@@ -235,33 +205,14 @@ export default function EventLogs() {
           })
         ) : (
           <div className="text-center py-8 text-gray-400 flex flex-col items-center justify-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="mb-2 text-gray-500"
-            >
-              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-              <path d="M7 7h.01" />
-              <path d="M12 7h.01" />
-              <path d="M17 7h.01" />
-              <path d="M7 12h.01" />
-              <path d="M12 12h.01" />
-              <path d="M17 12h.01" />
-              <path d="M7 17h.01" />
-              <path d="M12 17h.01" />
-              <path d="M17 17h.01" />
-            </svg>
+            <Database className="w-6 h-6 mb-2 text-gray-500" />
             {fetchError ? "Error loading events" : "No events detected yet"}
           </div>
         )}
       </div>
+
+      {/* Video Modal - Moved outside the scrolling container */}
+      {/* Modal JSX removed from here */}
     </div>
   );
 }
