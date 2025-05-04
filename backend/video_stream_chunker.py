@@ -1,11 +1,15 @@
 import datetime
-import json
+import logging
 import os
 import queue
 import time
 from typing import Optional
 
 import cv2
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_FOURCC = cv2.VideoWriter_fourcc(*"avc1")
 
 
 class VideoStreamChunker:
@@ -16,127 +20,167 @@ class VideoStreamChunker:
         chunk_duration: int = 5,
         output_queue: Optional[queue.Queue] = None,
     ):
-        """
-        Initialize the video stream chunker.
+        if chunk_duration <= 0:
+            raise ValueError("Chunk duration must be positive")
 
-        Args:
-            stream_url: URL of the video stream (e.g., rtsp://localhost:8554/hackathon)
-            output_dir: Directory to save video chunks
-            chunk_duration: Duration of each chunk in seconds
-            output_queue: Queue to output filenames to when chunks are complete
-        """
         self.stream_url = stream_url
         self.output_dir = output_dir
         self.chunk_duration = chunk_duration
         self.output_queue = output_queue
         self.is_running = False
-        os.makedirs(output_dir, exist_ok=True)
-
-    def start(self):
-        """Start the video chunking process."""
-        if self.is_running:
-            return
-        self.is_running = True
-        self.process_stream()
-
-    def stop(self):
-        """Stop the video chunking process."""
-        self.is_running = False
-
-    def process_stream(self):
-        """Main processing loop for video chunking."""
-        cap = None
-        writer = None
-        chunk_start = 0
-        start_time = None
-        output_file = None
-        frames = 0
+        self.fourcc = DEFAULT_FOURCC
 
         try:
-            cap = cv2.VideoCapture(self.stream_url)
-            if not cap.isOpened():
-                print(f"Error: Could not open stream {self.stream_url}")
-                return
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f"Ensured output directory exists: {output_dir}")
+        except OSError as e:
+            logger.error(f"Failed to create output directory {output_dir}: {e}")
+            raise
 
-            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    def start(self):
+        if self.is_running:
+            logger.warning("Chunker is already running.")
+            return
+        self.is_running = True
+        logger.info("Starting video stream chunker...")
+        self.process_stream()
+        logger.info("Video stream chunker stopped.")
 
-            while self.is_running:
-                ret, frame = cap.read()
-                if not ret:
-                    if writer:
-                        writer.release()
-                        writer = None
-                    cap.release()
-                    time.sleep(1)
-                    cap = cv2.VideoCapture(self.stream_url)
-                    chunk_start = 0
-                    continue
+    def stop(self):
+        logger.info("Stopping video stream chunker...")
+        self.is_running = False
 
-                now = time.time()
-
-                if chunk_start == 0 or (now - chunk_start) >= self.chunk_duration:
-                    if writer and frames > 0:
-                        writer.release()
-                        end_time = datetime.datetime.now(datetime.timezone.utc)
-                        start_str = start_time.strftime("%Y%m%d%H%M%S")
-                        end_str = end_time.strftime("%Y%m%d%H%M%S")
-                        final_file = os.path.join(
-                            self.output_dir, f"{start_str}_{end_str}.mp4"
-                        )
-                        os.rename(output_file, final_file)
-                        if self.output_queue:
-                            self.output_queue.put(final_file)
-
-                    chunk_start = now
-                    start_time = datetime.datetime.now(datetime.timezone.utc)
-                    frames = 0
-                    start_str = start_time.strftime("%Y%m%d%H%M%S")
-                    output_file = os.path.join(
-                        self.output_dir, f"{start_str}_ongoing.mp4"
-                    )
-                    fourcc = cv2.VideoWriter_fourcc(*"avc1")
-                    writer = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
-
-                if writer:
-                    writer.write(frame)
-                    frames += 1
-
-        finally:
-            if cap:
-                cap.release()
-
-            if writer and frames > 0:
+    def _finalize_chunk(
+        self,
+        writer: Optional[cv2.VideoWriter],
+        current_file: Optional[str],
+        start_time: Optional[datetime.datetime],
+    ) -> None:
+        if writer and current_file and start_time:
+            try:
                 writer.release()
                 end_time = datetime.datetime.now(datetime.timezone.utc)
                 start_str = start_time.strftime("%Y%m%d%H%M%S")
                 end_str = end_time.strftime("%Y%m%d%H%M%S")
                 final_file = os.path.join(self.output_dir, f"{start_str}_{end_str}.mp4")
-                os.rename(output_file, final_file)
+                os.rename(current_file, final_file)
+                logger.info(f"Completed video chunk: {final_file}")
                 if self.output_queue:
-                    self.output_queue.put(final_file)
+                    try:
+                        self.output_queue.put(final_file)
+                    except queue.Full:
+                        logger.error("Output queue is full. Dropping chunk filename.")
+                    except Exception as qe:
+                        logger.error(f"Error putting chunk filename into queue: {qe}")
+            except Exception as e:
+                logger.error(f"Error finalizing video chunk {current_file}: {e}")
 
+    def process_stream(self):
+        cap = None
+        writer = None
+        chunk_start_time_monotonic = 0
+        start_time_utc = None
+        output_file = None
+        frames_in_chunk = 0
+        retry_delay = 1
 
-if __name__ == "__main__":
-    with open("config.json", "r") as f:
-        config = json.load(f)
+        while self.is_running:
+            try:
+                if cap is None or not cap.isOpened():
+                    logger.info(f"Attempting to open stream: {self.stream_url}")
+                    cap = cv2.VideoCapture(self.stream_url)
+                    if not cap.isOpened():
+                        logger.warning(
+                            f"Failed to open stream {self.stream_url}. Retrying in {retry_delay} seconds..."
+                        )
+                        time.sleep(retry_delay)
+                        retry_delay = min(retry_delay * 2, 60)
+                        continue
+                    logger.info(f"Successfully opened stream: {self.stream_url}")
+                    retry_delay = 1
+                    chunk_start_time_monotonic = 0
+                    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    logger.info(
+                        f"Stream properties: FPS={fps}, Width={width}, Height={height}"
+                    )
 
-    output_dir = config["output_dir"]
-    stream_url = config["rtsp_url"]
-    chunk_duration = config["chunk_duration"]
-    file_queue = queue.Queue()
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning(
+                        "Stream ended or frame read error. Releasing capture and attempting reconnect..."
+                    )
+                    if writer:
+                        self._finalize_chunk(writer, output_file, start_time_utc)
+                        writer = None
+                        output_file = None
+                        start_time_utc = None
+                    if cap:
+                        cap.release()
+                        cap = None
+                    time.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, 60)
+                    continue
 
-    chunker = VideoStreamChunker(
-        stream_url=stream_url,
-        output_dir=output_dir,
-        chunk_duration=chunk_duration,
-        output_queue=file_queue,
-    )
+                now_monotonic = time.monotonic()
 
-    try:
-        chunker.start()
-    except KeyboardInterrupt:
-        print("Stopping chunker...")
-        chunker.stop()
-        print("Chunker stopped.")
+                if (
+                    chunk_start_time_monotonic == 0
+                    or (now_monotonic - chunk_start_time_monotonic)
+                    >= self.chunk_duration
+                ):
+                    if writer and frames_in_chunk > 0:
+                        self._finalize_chunk(writer, output_file, start_time_utc)
+
+                    chunk_start_time_monotonic = now_monotonic
+                    start_time_utc = datetime.datetime.now(datetime.timezone.utc)
+                    frames_in_chunk = 0
+                    start_str = start_time_utc.strftime("%Y%m%d%H%M%S")
+
+                    output_file = os.path.join(
+                        self.output_dir, f"{start_str}_ongoing.mp4"
+                    )
+                    writer = cv2.VideoWriter(
+                        output_file, self.fourcc, fps, (width, height)
+                    )
+                    if not writer.isOpened():
+                        logger.error(f"Failed to open VideoWriter for {output_file}")
+                        writer = None
+                        time.sleep(1)
+                        continue
+                    logger.debug(f"Starting new chunk: {output_file}")
+
+                if writer and writer.isOpened():
+                    writer.write(frame)
+                    frames_in_chunk += 1
+
+            except cv2.error as e:
+                logger.error(f"OpenCV error during stream processing: {e}")
+                if writer:
+                    writer.release()
+                    writer = None
+                if cap:
+                    cap.release()
+                    cap = None
+                output_file = None
+                start_time_utc = None
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)
+            except Exception as e:
+                logger.exception(f"Unexpected error in process_stream loop: {e}")
+                if writer:
+                    writer.release()
+                    writer = None
+                if cap:
+                    cap.release()
+                    cap = None
+                output_file = None
+                start_time_utc = None
+                time.sleep(5)
+
+        if writer and frames_in_chunk > 0:
+            self._finalize_chunk(writer, output_file, start_time_utc)
+        if cap:
+            cap.release()
+        logger.info("Stream processing loop finished.")

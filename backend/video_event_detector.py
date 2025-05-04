@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import os
 import queue
 import random
@@ -8,9 +9,27 @@ from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
-from devtools import debug
-from dotenv import load_dotenv
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a video analytics agent specialized in factual event detection.\n"
+    "Your task is to determine, based strictly on visual and contextual evidence, "
+    "whether specific events occurred in the video.\n"
+    "Do not infer or assume beyond what is clearly supported by the video and context.\n"
+    "Use only the visual content and the following context when making determinations: "
+    "{context}\n"
+    "Format your response as JSON."
+)
+
+DEFAULT_USER_PROMPT = (
+    "Based on the sequence of frames and the provided context, analyze whether "
+    "the following events occurred. Respond with a factual assessment of each event:\n"
+    "{events_list}"
+)
+
+DEFAULT_EVENT_LIST_ITEM = "- {event_code}: {event_description} {detection_guidelines}"
 
 
 class VideoEventDetector:
@@ -44,27 +63,18 @@ class VideoEventDetector:
         self.api_key: str = api_key
         self.output_queue: Optional[queue.Queue] = output_queue
 
-        self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
+        if not self.api_key:
+            raise ValueError("API key must be provided")
 
-        self.system_prompt: str = (
-            "You are a video analytics agent specialized in factual event detection.\n"
-            "Your task is to determine, based strictly on visual and contextual evidence, "
-            "whether specific events occurred in the video.\n"
-            "Do not infer or assume beyond what is clearly supported by the video and context.\n"
-            "Use only the visual content and the following context when making determinations: "
-            "{context}\n"
-            "Format your response as JSON."
-        )
+        try:
+            self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            raise
 
-        self.user_prompt: str = (
-            "Based on the sequence of frames and the provided context, analyze whether "
-            "the following events occurred. Respond with a factual assessment of each event:\n"
-            "{events_list}"
-        )
-
-        self.event_list_item: str = (
-            "- {event_code}: {event_description} {detection_guidelines}"
-        )
+        self.system_prompt: str = DEFAULT_SYSTEM_PROMPT
+        self.user_prompt: str = DEFAULT_USER_PROMPT
+        self.event_list_item: str = DEFAULT_EVENT_LIST_ITEM
 
     def video_to_frames(
         self, video_path: str, time_based_sampling: str = "random"
@@ -82,30 +92,47 @@ class VideoEventDetector:
             List of frames as base64 encoded strings.
         """
         frames: List[str] = []
-        cap = cv2.VideoCapture(video_path)
+        cap = None
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                logger.error(f"Could not open video file {video_path}")
+                return frames
 
-        if not cap.isOpened():
-            print(f"Error: Could not open video file {video_path}")
-            return frames
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps <= 0:
+                logger.warning(
+                    f"Invalid FPS ({fps}) detected for {video_path}. Assuming 30 FPS."
+                )
+                fps = 30
 
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        duration_seconds = int(total_frames / fps)
+            duration_seconds = int(total_frames / fps)
 
-        frame_indices = self._calculate_frame_indices(
-            duration_seconds, fps, time_based_sampling, total_frames
-        )
+            frame_indices = self._calculate_frame_indices(
+                duration_seconds, fps, time_based_sampling, total_frames
+            )
 
-        for frame_idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            success, frame = cap.read()
+            for frame_idx in frame_indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                success, frame = cap.read()
+                if success:
+                    frame_base64 = self._convert_to_base64(frame)
+                    if frame_base64:
+                        frames.append(frame_base64)
+                else:
+                    logger.warning(
+                        f"Failed to read frame at index {frame_idx} from {video_path}"
+                    )
 
-            if success:
-                frame_base64 = self._convert_to_base64(frame)
-                if frame_base64:
-                    frames.append(frame_base64)
+        except cv2.error as e:
+            logger.error(f"OpenCV error processing video {video_path}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error processing video {video_path}: {e}")
+        finally:
+            if cap is not None and cap.isOpened():
+                cap.release()
 
-        cap.release()
         return frames
 
     def _calculate_frame_indices(
@@ -123,20 +150,41 @@ class VideoEventDetector:
             List of frame indices to extract.
         """
         frame_indices: List[int] = []
+        if duration_seconds <= 0 or fps <= 0 or total_frames <= 0:
+            logger.warning(
+                f"Invalid video parameters for frame index calculation: duration={duration_seconds}, fps={fps}, total_frames={total_frames}"
+            )
+            return frame_indices
 
         for second in range(duration_seconds):
             start_frame = int(second * fps)
             end_frame = int((second + 1) * fps) - 1
-            end_frame = min(end_frame, total_frames - 1)
+            end_frame = min(max(0, end_frame), total_frames - 1)
+            start_frame = min(max(0, start_frame), end_frame)
 
-            if sampling_method == "first":
-                frame_indices.append(start_frame)
-            elif sampling_method == "last":
-                frame_indices.append(end_frame)
-            elif sampling_method == "random":
-                frame_indices.append(random.randint(start_frame, end_frame))
-            else:
-                print(f"Unknown sampling method: {sampling_method}. Using first frame.")
+            if start_frame > end_frame:
+                logger.warning(
+                    f"Calculated start_frame {start_frame} > end_frame {end_frame} for second {second}. Skipping."
+                )
+                continue
+
+            try:
+                if sampling_method == "first":
+                    frame_index = start_frame
+                elif sampling_method == "last":
+                    frame_index = end_frame
+                elif sampling_method == "random":
+                    frame_index = random.randint(start_frame, end_frame)
+                else:
+                    logger.warning(
+                        f"Unknown sampling method: {sampling_method}. Using first frame."
+                    )
+                    frame_index = start_frame
+                frame_indices.append(frame_index)
+            except ValueError as e:
+                logger.error(
+                    f"Error calculating random frame index between {start_frame} and {end_frame}: {e}. Using start frame."
+                )
                 frame_indices.append(start_frame)
 
         return frame_indices
@@ -150,33 +198,25 @@ class VideoEventDetector:
         Returns:
             Base64 encoded string of the image or None if conversion fails.
         """
-        success, buffer = cv2.imencode(".png", frame)
-        if success:
-            frame_base64 = base64.b64encode(buffer).decode("utf-8")
-            return f"data:image/png;base64,{frame_base64}"
-        return None
+        try:
+            success, buffer = cv2.imencode(".png", frame)
+            if success:
+                frame_base64 = base64.b64encode(buffer).decode("utf-8")
+                return f"data:image/png;base64,{frame_base64}"
+            else:
+                logger.warning("Failed to encode frame to PNG.")
+                return None
+        except cv2.error as e:
+            logger.error(f"OpenCV error encoding frame: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error encoding frame: {e}")
+            return None
 
-    def visualize_frames(self, frames: List[str]) -> None:
-        """Display frames using OpenCV.
-
-        Args:
-            frames: List of base64 encoded image frames.
-        """
-        for i, frame_base64 in enumerate(frames):
-            base64_data = frame_base64.split(",")[1]
-            img_data = base64.b64decode(base64_data)
-            nparr = np.frombuffer(img_data, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-            cv2.imshow(f"Frame {i}", frame)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-
-    def _build_system_message(self, prompt: str, context: str) -> Dict[str, str]:
+    def _build_system_message(self, context: str) -> Dict[str, str]:
         """Create the system message for the API request.
 
         Args:
-            prompt: System prompt template.
             context: Context to include in the prompt.
 
         Returns:
@@ -184,17 +224,16 @@ class VideoEventDetector:
         """
         return {
             "role": "system",
-            "content": prompt.format(context=context),
+            "content": self.system_prompt.format(context=context),
         }
 
     def _build_user_message(
-        self, frames: List[str], prompt: str, events: List[Dict[str, str]]
+        self, frames: List[str], events: List[Dict[str, str]]
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Create the user message with event list and frames for the API request.
 
         Args:
             frames: List of base64 encoded frames.
-            prompt: User prompt template.
             events: List of event dictionaries with event_code, event_description,
                    and detection_guidelines.
 
@@ -205,7 +244,7 @@ class VideoEventDetector:
             self.event_list_item.format(
                 event_code=event["event_code"],
                 event_description=event["event_description"],
-                detection_guidelines=event["detection_guidelines"],
+                detection_guidelines=event.get("detection_guidelines", ""),
             )
             for event in events
         )
@@ -213,7 +252,7 @@ class VideoEventDetector:
         content = [
             {
                 "type": "text",
-                "text": prompt.format(events_list=events_list),
+                "text": self.user_prompt.format(events_list=events_list),
             }
         ]
 
@@ -266,13 +305,25 @@ class VideoEventDetector:
             Datetime object extracted from the second part of filename (after underscore)
         """
         try:
-            filename_parts = os.path.splitext(filename)[0].split("_")
+            filename_base = os.path.splitext(os.path.basename(filename))[0]
+            filename_parts = filename_base.split("_")
             if len(filename_parts) > 1:
                 timestamp_str = filename_parts[1]
-                timestamp = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
-                return timestamp
+                if len(timestamp_str) == 14:
+                    timestamp = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
+                    return timestamp
+                else:
+                    logger.warning(
+                        f"Timestamp part '{timestamp_str}' in filename {filename} has incorrect length."
+                    )
+            else:
+                logger.warning(
+                    f"Could not split filename {filename} by '_' to find timestamp."
+                )
         except (ValueError, IndexError) as e:
-            print(f"Could not extract timestamp from filename {filename}: {e}")
+            logger.warning(f"Could not extract timestamp from filename {filename}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error extracting timestamp from {filename}: {e}")
         return None
 
     def detect_events(
@@ -281,7 +332,7 @@ class VideoEventDetector:
         events: List[Dict[str, str]],
         context: str,
         time_based_sampling: str = "random",
-    ) -> Dict[str, Union[List[Dict[str, Any]], str]]:
+    ) -> Optional[Dict[str, Any]]:
         """Detect events in video using context and events criteria.
 
         Args:
@@ -298,72 +349,109 @@ class VideoEventDetector:
             ValueError: If context is not provided.
         """
         if not context:
+            logger.error("Context must be provided for event detection.")
             raise ValueError("Context must be provided")
+        if not events:
+            logger.warning(
+                f"No events specified for detection in video {video_path}. Returning empty results."
+            )
+            return {"events": []}
 
+        logger.info(f"Starting event detection for {video_path}")
         frames = self.video_to_frames(
             video_path, time_based_sampling=time_based_sampling
         )
 
         if not frames:
+            logger.warning(
+                f"No frames extracted from {video_path}. Cannot perform event detection."
+            )
             return {"error": "No frames could be extracted from the video"}
 
-        system_message = self._build_system_message(self.system_prompt, context)
-        user_message = self._build_user_message(frames, self.user_prompt, events)
-        json_schema = self._create_json_schema()
-
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[system_message, user_message],
-            response_format={"type": "json_schema", "json_schema": json_schema},
+        logger.info(
+            f"Extracted {len(frames)} frames from {video_path}. Sending to LLM."
         )
 
-        results = json.loads(response.choices[0].message.content)
+        try:
+            system_message = self._build_system_message(context)
+            user_message = self._build_user_message(frames, events)
+            json_schema = self._create_json_schema()
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[system_message, user_message],
+                response_format={"type": "json_schema", "json_schema": json_schema},
+            )
+
+            results_content = response.choices[0].message.content
+            results = json.loads(results_content)
+            logger.info(f"Received LLM response for {video_path}")
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Failed to decode JSON response from LLM for {video_path}: {e}. Response content: {results_content}"
+            )
+            return {"error": "Failed to decode LLM response"}
+        except Exception as e:
+            logger.error(f"Error calling LLM API for {video_path}: {e}")
+            return {"error": f"LLM API call failed: {e}"}
 
         if self.output_queue is not None:
-            video_filename = os.path.basename(video_path)
-            timestamp = self._extract_timestamp_from_filename(video_filename)
+            try:
+                video_filename = os.path.basename(video_path)
+                timestamp = (
+                    self._extract_timestamp_from_filename(video_filename)
+                    or datetime.now()
+                )
 
-            event_video_url = video_path
+                event_video_url = video_path
 
-            if "events" in results:
-                for event in results["events"]:
-                    if event.get("detected") is True:
-                        event_description = ""
-                        for event_def in events:
-                            if event_def["event_code"] == event["event_code"]:
-                                event_description = event_def["event_description"]
-                                break
+                if "events" in results:
+                    detected_events_count = 0
+                    for event in results["events"]:
+                        if event.get("detected") is True:
+                            event_description = "Unknown event description"
+                            for event_def in events:
+                                if event_def.get("event_code") == event.get(
+                                    "event_code"
+                                ):
+                                    event_description = event_def.get(
+                                        "event_description", "Unknown event description"
+                                    )
+                                    break
 
-                        event_alert = {
-                            "event_timestamp": timestamp,
-                            "event_code": event["event_code"],
-                            "event_description": event_description,
-                            "event_detection_explanation_by_ai": event["explanation"],
-                            "event_video_url": event_video_url,
-                        }
+                            event_alert = {
+                                "event_timestamp": timestamp,
+                                "event_code": event.get("event_code", "unknown-code"),
+                                "event_description": event_description,
+                                "event_detection_explanation_by_ai": event.get(
+                                    "explanation", ""
+                                ),
+                                "event_video_url": event_video_url,
+                            }
 
-                        self.output_queue.put(event_alert)
+                            try:
+                                self.output_queue.put(event_alert)
+                                detected_events_count += 1
+                            except queue.Full:
+                                logger.error(
+                                    "Output queue is full. Dropping event alert."
+                                )
+                            except Exception as qe:
+                                logger.error(
+                                    f"Error putting event alert into queue: {qe}"
+                                )
+                    if detected_events_count > 0:
+                        logger.info(
+                            f"Queued {detected_events_count} detected events from {video_path}"
+                        )
+                else:
+                    logger.warning(
+                        f"LLM response for {video_path} did not contain 'events' key."
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error processing LLM results or queuing event alerts for {video_path}: {e}"
+                )
 
         return results
-
-
-if __name__ == "__main__":
-    load_dotenv()
-
-    with open("config.json", "r") as f:
-        config = json.load(f)
-
-    model = config["model"]
-    base_url = config["base_url"]
-    api_key = os.getenv("LLAMA_API_KEY")
-    context = config["context"]
-    events = config["events"]
-
-    detector = VideoEventDetector(model=model, base_url=base_url, api_key=api_key)
-    results = detector.detect_events(
-        "../localdata/video_chunks/20250504020824_20250504020829.mp4",
-        events=events,
-        context=context,
-    )
-
-    debug(results)

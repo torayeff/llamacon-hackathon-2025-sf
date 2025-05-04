@@ -1,13 +1,16 @@
 import logging
-import os
 from datetime import datetime
 from typing import List
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -73,11 +76,14 @@ class DBWriter:
             create_tables: If True, creates tables in the database
         """
         self.db_url = db_url
-        self.engine = create_engine(self.db_url, pool_pre_ping=True)
-        self.Session = sessionmaker(bind=self.engine)
-
-        if create_tables:
-            self.setup_database()
+        try:
+            self.engine = create_engine(self.db_url, pool_pre_ping=True)
+            self.Session = sessionmaker(bind=self.engine)
+            if create_tables:
+                self.setup_database()
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to initialize database engine or session: {e}")
+            raise
 
     def setup_database(self, reset: bool = False) -> None:
         """Set up the database schema.
@@ -90,13 +96,17 @@ class DBWriter:
         Raises:
             SQLAlchemyError: If there's an error during table creation
         """
-        if reset:
-            logging.warning("Dropping all existing tables from database.")
-            Base.metadata.drop_all(self.engine)
+        try:
+            if reset:
+                logger.warning("Dropping all existing tables from database.")
+                Base.metadata.drop_all(self.engine)
 
-        logging.info("Creating database tables if they don't exist.")
-        Base.metadata.create_all(self.engine)
-        logging.info("Database tables created or verified.")
+            logger.info("Creating database tables if they don't exist.")
+            Base.metadata.create_all(self.engine)
+            logger.info("Database tables created or verified.")
+        except SQLAlchemyError as e:
+            logger.error(f"Database setup failed: {e}")
+            raise
 
     def write_events(
         self,
@@ -114,51 +124,29 @@ class DBWriter:
             SQLAlchemyError: If there's an error during database write operations
         """
         written_count = 0
-        session = self.Session()
-
         try:
-            for event in events:
-                event_log = EventLog(
-                    event_timestamp=event.event_timestamp,
-                    event_code=event.event_code,
-                    event_description=event.event_description,
-                    event_video_url=event.event_video_url,
-                    event_detection_explanation_by_ai=event.event_detection_explanation_by_ai,
-                )
-
-                session.add(event_log)
-                written_count += 1
-
-            session.commit()
-        except Exception as e:
-            logging.error(f"Error writing events to database: {e}")
-            session.rollback()
+            with self.Session() as session:
+                try:
+                    for event in events:
+                        event_log = EventLog(
+                            event_timestamp=event.event_timestamp,
+                            event_code=event.event_code,
+                            event_description=event.event_description,
+                            event_video_url=event.event_video_url,
+                            event_detection_explanation_by_ai=event.event_detection_explanation_by_ai,
+                        )
+                        session.add(event_log)
+                    session.commit()
+                    written_count = len(events)
+                except SQLAlchemyError as e:
+                    logger.error(f"Error during database commit: {e}")
+                    session.rollback()
+                    raise
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create database session: {e}")
             raise
-        finally:
-            session.close()
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during event writing: {e}")
+            raise
 
         return written_count
-
-
-if __name__ == "__main__":
-    load_dotenv()
-    logging.basicConfig(level=logging.INFO)
-
-    db_writer = DBWriter(
-        db_url=os.getenv("DATABASE_URL", "sqlite:///events.db"),
-        create_tables=True,
-    )
-
-    sample_event = EventAlert(
-        event_timestamp=datetime.now(),
-        event_code="test-event",
-        event_description="Brief description of the event",
-        event_detection_explanation_by_ai="Detailed AI explanation of why this event was detected",
-        event_video_url="chunk_1.mp4",
-    )
-
-    try:
-        num_written = db_writer.write_events(events=[sample_event])
-        logging.info(f"Successfully wrote {num_written} event(s) to the database")
-    except SQLAlchemyError as e:
-        logging.error(f"Failed to write events: {e}")

@@ -17,8 +17,8 @@
 - [x] Test simple video event detection - Kinda works.
 - [x] Develop logic for stream
 - [x] Develop logic for alerting
-- [ ] Implement Video Stream Chunker
-- [ ] Implement Database Writer
+- [x] Implement Video Stream Chunker
+- [x] Implement Database Writer
 - [ ] Think about frontend
 
 ```mermaid
