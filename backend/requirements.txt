@@ -1,5 +1,7 @@
 devtools
 openai
 opencv-python
+psycopg2-binary
 pydantic
 python-dotenv
+sqlalchemy
