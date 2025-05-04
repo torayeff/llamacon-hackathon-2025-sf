@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import {
   Pencil,
@@ -102,29 +102,57 @@ export default function Home() {
   }, [statusMessage]);
 
   // Show toast notification
-  const showToast = (
-    message: string,
-    type: "success" | "error" = "success"
-  ) => {
-    setStatusMessage(message);
-    setToastType(type);
-  };
+  const showToast = useCallback(
+    (message: string, type: "success" | "error" = "success") => {
+      setStatusMessage(message);
+      setToastType(type);
+    },
+    []
+  );
 
-  // Auto-start detection when page loads and stop when unloaded
-  useEffect(() => {
-    if (state.step === 5) {
-      // Only start detection on the monitoring page
-      startDetection();
+  // Function to poll for events - moved up and wrapped in useCallback
+  const pollForEvents = useCallback(async () => {
+    try {
+      const response = await fetch("http://localhost:8000/status");
+      if (response.ok) {
+        const data = await response.json();
 
-      // Clean up function will run when component unmounts
-      return () => {
-        stopDetection();
-      };
+        // If we have detected events from the server, update our state
+        if (data.detected_events && Array.isArray(data.detected_events)) {
+          const formattedEvents = data.detected_events.map(
+            (event: {
+              event_code: string;
+              event_description: string;
+              detection_guidelines: string;
+            }) => ({
+              code: event.event_code,
+              description: event.event_description,
+              guidelines: event.detection_guidelines,
+            })
+          );
+
+          setState((prevState) => ({
+            ...prevState,
+            detectedEvents: formattedEvents,
+          }));
+        }
+
+        // Continue polling if detection is active
+        if (isDetecting) {
+          setTimeout(pollForEvents, 2000); // Poll every 2 seconds
+        }
+      }
+    } catch (error) {
+      console.error("Error polling for events:", error);
+      // Continue polling despite errors
+      if (isDetecting) {
+        setTimeout(pollForEvents, 5000); // Retry after 5 seconds on error
+      }
     }
-  }, [state.step]);
+  }, [isDetecting]);
 
-  // Function to start detection
-  const startDetection = async () => {
+  // Function to start detection - wrapped in useCallback to prevent dependency issues
+  const startDetection = useCallback(async () => {
     try {
       // Check if detection is already running
       const statusResponse = await fetch("http://localhost:8000/status");
@@ -185,10 +213,10 @@ export default function Home() {
         "error"
       );
     }
-  };
+  }, [state, showToast, pollForEvents]);
 
-  // Function to stop detection
-  const stopDetection = async () => {
+  // Function to stop detection - wrapped in useCallback to prevent dependency issues
+  const stopDetection = useCallback(async () => {
     try {
       // Check if detection is actually running before stopping
       const statusResponse = await fetch("http://localhost:8000/status");
@@ -222,10 +250,10 @@ export default function Home() {
       // Even if there's an error, assume detection is stopped
       setIsDetecting(false);
     }
-  };
+  }, [showToast]);
 
   // Function to restart detection with new parameters
-  const restartDetection = async () => {
+  const restartDetection = useCallback(async () => {
     try {
       await stopDetection();
       // Short delay to ensure stop completes
@@ -240,48 +268,20 @@ export default function Home() {
         "error"
       );
     }
-  };
+  }, [stopDetection, startDetection, showToast]);
 
-  // Function to poll for events
-  const pollForEvents = async () => {
-    try {
-      const response = await fetch("http://localhost:8000/status");
-      if (response.ok) {
-        const data = await response.json();
+  // Auto-start detection when page loads and stop when unloaded
+  useEffect(() => {
+    if (state.step === 5) {
+      // Only start detection on the monitoring page
+      startDetection();
 
-        // If we have detected events from the server, update our state
-        if (data.detected_events && Array.isArray(data.detected_events)) {
-          const formattedEvents = data.detected_events.map(
-            (event: {
-              event_code: string;
-              event_description: string;
-              detection_guidelines: string;
-            }) => ({
-              code: event.event_code,
-              description: event.event_description,
-              guidelines: event.detection_guidelines,
-            })
-          );
-
-          setState((prevState) => ({
-            ...prevState,
-            detectedEvents: formattedEvents,
-          }));
-        }
-
-        // Continue polling if detection is active
-        if (isDetecting) {
-          setTimeout(pollForEvents, 2000); // Poll every 2 seconds
-        }
-      }
-    } catch (error) {
-      console.error("Error polling for events:", error);
-      // Continue polling despite errors
-      if (isDetecting) {
-        setTimeout(pollForEvents, 5000); // Retry after 5 seconds on error
-      }
+      // Clean up function will run when component unmounts
+      return () => {
+        stopDetection();
+      };
     }
-  };
+  }, [state.step, startDetection, stopDetection]);
 
   const nextStep = () => {
     setState({ ...state, step: state.step + 1 });
