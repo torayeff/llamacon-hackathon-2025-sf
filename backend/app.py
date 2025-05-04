@@ -66,36 +66,33 @@ def event_collection_worker():
             print(f"New event detected: {result}")
 
             # Process and store events in the database
-            if (
-                db_writer
-                and "detection_results" in result
-                and result["detection_results"]
-            ):
-                event_timestamp = result.get("timestamp", datetime.now())
-                events_to_store = []
-
-                for detected_event in result["detection_results"]:
+            if db_writer:
+                # The result from the queue is already a single detected event dictionary
+                # matching the structure needed by EventAlert.
+                try:
+                    # Create EventAlert Pydantic model instance for validation (optional but good practice)
+                    # Ensure the keys in the 'result' dict match EventAlert fields
                     event_alert = EventAlert(
-                        event_timestamp=event_timestamp,
-                        event_code=detected_event["event_code"],
-                        event_description=detected_event.get(
-                            "event_code", "Unknown event"
-                        )
-                        .replace("-", " ")
-                        .title(),
-                        event_detection_explanation_by_ai=detected_event.get(
-                            "explanation", ""
+                        event_timestamp=result.get(
+                            "event_timestamp", datetime.now()
+                        ),  # Use timestamp from result
+                        event_code=result.get("event_code", "unknown-code"),
+                        event_description=result.get(
+                            "event_description", "Unknown event description"
                         ),
-                        event_video_url=result.get("video_filename", ""),
+                        event_detection_explanation_by_ai=result.get(
+                            "event_detection_explanation_by_ai", ""
+                        ),
+                        event_video_url=result.get("event_video_url", ""),
                     )
-                    events_to_store.append(event_alert)
 
-                if events_to_store:
-                    try:
-                        num_written = db_writer.write_events(events=events_to_store)
-                        print(f"Wrote {num_written} events to database")
-                    except Exception as e:
-                        print(f"Error writing to database: {e}")
+                    # write_events expects a list of EventAlert objects
+                    num_written = db_writer.write_events(events=[event_alert])
+                    if num_written > 0:
+                        print(f"Wrote {num_written} event to database")
+
+                except Exception as e:
+                    print(f"Error processing or writing event to database: {e}")
 
             event_detection_queue.task_done()
         except queue.Empty:
