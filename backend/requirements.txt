@@ -1,7 +1,9 @@
 devtools
+fastapi
 openai
 opencv-python
 psycopg2-binary
 pydantic
 python-dotenv
 sqlalchemy
+uvicorn
