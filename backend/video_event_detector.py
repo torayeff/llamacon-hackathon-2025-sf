@@ -3,6 +3,7 @@ import json
 import os
 import queue
 import random
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import cv2
@@ -162,7 +163,6 @@ class VideoEventDetector:
             frames: List of base64 encoded image frames.
         """
         for i, frame_base64 in enumerate(frames):
-            # Convert base64 back to OpenCV format
             base64_data = frame_base64.split(",")[1]
             img_data = base64.b64decode(base64_data)
             nparr = np.frombuffer(img_data, np.uint8)
@@ -256,6 +256,25 @@ class VideoEventDetector:
             }
         }
 
+    def _extract_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
+        """Extract timestamp from video filename.
+
+        Args:
+            filename: Video filename in format like "20250504020824_20250504020829.mp4"
+
+        Returns:
+            Datetime object extracted from the second part of filename (after underscore)
+        """
+        try:
+            filename_parts = os.path.splitext(filename)[0].split("_")
+            if len(filename_parts) > 1:
+                timestamp_str = filename_parts[1]
+                timestamp = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
+                return timestamp
+        except (ValueError, IndexError) as e:
+            print(f"Could not extract timestamp from filename {filename}: {e}")
+        return None
+
     def detect_events(
         self,
         video_path: str,
@@ -302,19 +321,28 @@ class VideoEventDetector:
 
         if self.output_queue is not None:
             video_filename = os.path.basename(video_path)
-            detected_events = []
+            timestamp = self._extract_timestamp_from_filename(video_filename)
+
+            event_video_url = video_path
+
             if "events" in results:
-                detected_events = [
-                    event
-                    for event in results["events"]
-                    if event.get("detected") is True
-                ]
-            if detected_events:
-                queue_data = {
-                    "video_filename": video_filename,
-                    "detection_results": detected_events,
-                }
-                self.output_queue.put(queue_data)
+                for event in results["events"]:
+                    if event.get("detected") is True:
+                        event_description = ""
+                        for event_def in events:
+                            if event_def["event_code"] == event["event_code"]:
+                                event_description = event_def["event_description"]
+                                break
+
+                        event_alert = {
+                            "event_timestamp": timestamp,
+                            "event_code": event["event_code"],
+                            "event_description": event_description,
+                            "event_detection_explanation_by_ai": event["explanation"],
+                            "event_video_url": event_video_url,
+                        }
+
+                        self.output_queue.put(event_alert)
 
         return results
 
@@ -333,7 +361,9 @@ if __name__ == "__main__":
 
     detector = VideoEventDetector(model=model, base_url=base_url, api_key=api_key)
     results = detector.detect_events(
-        "../localdata/chunk_2.mp4", events=events, context=context
+        "../localdata/video_chunks/20250504020824_20250504020829.mp4",
+        events=events,
+        context=context,
     )
 
     debug(results)
