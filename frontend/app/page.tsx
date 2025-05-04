@@ -81,17 +81,14 @@ export default function Home() {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastType, setToastType] = useState<"success" | "error">("success");
 
-  // Ref to track if detection should be active based on the current step
   const detectionShouldBeActive = useRef(false);
 
-  // Handle toast visibility
   useEffect(() => {
     let toastTimer: NodeJS.Timeout;
 
     if (statusMessage) {
       setToastVisible(true);
 
-      // Hide toast after 5 seconds
       toastTimer = setTimeout(() => {
         setToastVisible(false);
       }, 5000);
@@ -102,7 +99,6 @@ export default function Home() {
     };
   }, [statusMessage]);
 
-  // Show toast notification
   const showToast = useCallback(
     (message: string, type: "success" | "error" = "success") => {
       setStatusMessage(message);
@@ -111,23 +107,10 @@ export default function Home() {
     []
   );
 
-  // Function to start detection - wrapped in useCallback to prevent dependency issues
   const startDetection = useCallback(async () => {
     try {
-      // Check if detection is already running
-      // const statusResponse = await fetch("http://localhost:8000/status");
-      // if (statusResponse.ok) {
-      //   const statusData = await statusResponse.json();
-      //   if (statusData.is_running) {
-      //     setIsDetecting(true);
-      //     showToast("Detection is already running", "success");
-      //     return;
-      //   }
-      // }
-
       showToast("Starting detection...", "success");
 
-      // Format the request body according to backend API
       const requestBody = {
         model: state.llamaModel,
         base_url: state.baseUrl,
@@ -172,19 +155,8 @@ export default function Home() {
     }
   }, [state, showToast, setIsDetecting]);
 
-  // Function to stop detection - wrapped in useCallback to prevent dependency issues
   const stopDetection = useCallback(async () => {
     try {
-      // Check if detection is actually running before stopping
-      // const statusResponse = await fetch("http://localhost:8000/status");
-      // if (statusResponse.ok) {
-      //   const statusData = await statusResponse.json();
-      //   if (!statusData.is_running) {
-      //     setIsDetecting(false);
-      //     return; // No need to stop if not running
-      //   }
-      // }
-
       showToast("Stopping detection...", "success");
       const response = await fetch("http://localhost:8000/stop", {
         method: "POST",
@@ -204,16 +176,13 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Error stopping detection:", error);
-      // Even if there's an error, assume detection is stopped
       setIsDetecting(false);
     }
   }, [showToast, setIsDetecting]);
 
-  // Function to restart detection with new parameters
   const restartDetection = useCallback(async () => {
     try {
       await stopDetection();
-      // Short delay to ensure stop completes
       setTimeout(async () => {
         await startDetection();
       }, 1000);
@@ -227,29 +196,21 @@ export default function Home() {
     }
   }, [stopDetection, startDetection, showToast]);
 
-  // Effect to automatically start/stop detection when entering/leaving step 5
   useEffect(() => {
     if (state.step === 5) {
-      // We are on the monitoring step.
       if (!detectionShouldBeActive.current) {
-        // Start detection only if we just entered step 5
         console.log("Effect: Entering Step 5, starting detection.");
         startDetection();
         detectionShouldBeActive.current = true;
       }
-      // If effect re-runs while already on step 5 (due to state changes causing startDetection to change),
-      // do nothing here. Rely on the manual 'Restart' button for applying setting changes.
     } else {
-      // We are not on the monitoring step.
       if (detectionShouldBeActive.current) {
-        // Stop detection only if we just left step 5
         console.log("Effect: Leaving Step 5, stopping detection.");
         stopDetection();
         detectionShouldBeActive.current = false;
       }
     }
 
-    // Cleanup function: Ensure detection is stopped if component unmounts while active
     return () => {
       if (detectionShouldBeActive.current) {
         console.log(
@@ -259,7 +220,6 @@ export default function Home() {
         detectionShouldBeActive.current = false;
       }
     };
-    // Dependencies remain the same. The logic inside handles the re-runs.
   }, [state.step, startDetection, stopDetection]);
 
   const nextStep = () => {
@@ -284,7 +244,6 @@ export default function Home() {
     e.preventDefault();
     if (newEvent.code && newEvent.description && newEvent.guidelines) {
       if (editingEvent !== null) {
-        // Update existing event
         const updatedEvents = [...state.eventsToDetect];
         updatedEvents[editingEvent.index] = { ...newEvent };
         setState({
@@ -293,7 +252,6 @@ export default function Home() {
         });
         setEditingEvent(null);
       } else {
-        // Add new event
         setState({
           ...state,
           eventsToDetect: [...state.eventsToDetect, { ...newEvent }],
@@ -749,7 +707,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Toast notification */}
             {statusMessage && toastVisible && (
               <div
                 className={`fixed top-6 right-6 p-3 rounded-lg text-white shadow-lg max-w-md z-50 flex items-center gap-2 transform transition-all duration-300 ${
@@ -780,7 +737,6 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 flex-grow overflow-hidden">
               <div className="lg:col-span-3 flex flex-col h-full overflow-hidden">
                 <div className="flex-grow rounded-2xl overflow-hidden border border-gray-800 flex-shrink-0 relative">
-                  {/* Video player with responsive height */}
                   <iframe
                     src={state.previewUrl}
                     className="absolute inset-0 w-full h-full"
@@ -814,7 +770,6 @@ export default function Home() {
                     </h3>
 
                     <div className="space-y-4 flex-grow">
-                      {/* Llama API Settings - Moved to be first */}
                       <div>
                         <h4 className="text-md font-medium mb-3 text-white">
                           Llama API Settings
@@ -854,7 +809,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* URL Settings */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           Stream URLs
@@ -928,7 +882,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* Stream Context */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           Stream Context
@@ -947,7 +900,6 @@ export default function Home() {
                         />
                       </div>
 
-                      {/* Events List */}
                       {state.eventsToDetect.length > 0 && (
                         <div className="mt-4 pt-4 border-t border-gray-700">
                           <h4 className="text-md font-medium mb-3 text-white">
@@ -989,7 +941,6 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* Edit Event Form */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           {editingEvent !== null
@@ -1036,7 +987,6 @@ export default function Home() {
                                 e.preventDefault();
                                 if (newEvent.code && newEvent.description) {
                                   if (editingEvent !== null) {
-                                    // Update existing event
                                     const updatedEvents = [
                                       ...state.eventsToDetect,
                                     ];
@@ -1049,7 +999,6 @@ export default function Home() {
                                     });
                                     setEditingEvent(null);
                                   } else {
-                                    // Add new event
                                     setState({
                                       ...state,
                                       eventsToDetect: [
@@ -1082,7 +1031,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Restart button at the bottom */}
                     <div className="mt-6 pt-4 border-t border-gray-700 flex-shrink-0 space-y-3">
                       <button
                         onClick={restartDetection}
