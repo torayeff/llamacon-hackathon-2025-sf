@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   Pencil,
@@ -10,8 +10,11 @@ import {
   Plus,
   ArrowRight,
   AlertTriangle,
-  Settings,
+  Settings as SettingsIcon,
   X,
+  RefreshCw,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import EventLogs from "./event-logs/ui";
 
@@ -77,11 +80,64 @@ export default function Home() {
   const [showConfig, setShowConfig] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastType, setToastType] = useState<"success" | "error">("success");
+
+  // Handle toast visibility
+  useEffect(() => {
+    let toastTimer: NodeJS.Timeout;
+
+    if (statusMessage) {
+      setToastVisible(true);
+
+      // Hide toast after 5 seconds
+      toastTimer = setTimeout(() => {
+        setToastVisible(false);
+      }, 5000);
+    }
+
+    return () => {
+      if (toastTimer) clearTimeout(toastTimer);
+    };
+  }, [statusMessage]);
+
+  // Show toast notification
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success"
+  ) => {
+    setStatusMessage(message);
+    setToastType(type);
+  };
+
+  // Auto-start detection when page loads and stop when unloaded
+  useEffect(() => {
+    if (state.step === 5) {
+      // Only start detection on the monitoring page
+      startDetection();
+
+      // Clean up function will run when component unmounts
+      return () => {
+        stopDetection();
+      };
+    }
+  }, [state.step]);
 
   // Function to start detection
   const startDetection = async () => {
     try {
-      setStatusMessage("Starting detection...");
+      // Check if detection is already running
+      const statusResponse = await fetch("http://localhost:8000/status");
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        if (statusData.is_running) {
+          setIsDetecting(true);
+          showToast("Detection is already running", "success");
+          return;
+        }
+      }
+
+      showToast("Starting detection...", "success");
 
       // Format the request body according to backend API
       const requestBody = {
@@ -108,21 +164,25 @@ export default function Home() {
 
       if (response.ok) {
         setIsDetecting(true);
-        setStatusMessage("Detection started successfully");
+        showToast("Detection started successfully", "success");
 
         // Start polling for events
         pollForEvents();
       } else {
         const errorData = await response.json();
-        setStatusMessage(
-          `Error starting detection: ${errorData.detail || response.statusText}`
+        showToast(
+          `Error starting detection: ${
+            errorData.detail || response.statusText
+          }`,
+          "error"
         );
       }
     } catch (error) {
-      setStatusMessage(
+      showToast(
         `Error starting detection: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
+        "error"
       );
     }
   };
@@ -130,25 +190,54 @@ export default function Home() {
   // Function to stop detection
   const stopDetection = async () => {
     try {
-      setStatusMessage("Stopping detection...");
+      // Check if detection is actually running before stopping
+      const statusResponse = await fetch("http://localhost:8000/status");
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        if (!statusData.is_running) {
+          setIsDetecting(false);
+          return; // No need to stop if not running
+        }
+      }
+
+      showToast("Stopping detection...", "success");
       const response = await fetch("http://localhost:8000/stop", {
         method: "POST",
       });
 
       if (response.ok) {
         setIsDetecting(false);
-        setStatusMessage("Detection stopped successfully");
+        showToast("Detection stopped successfully", "success");
       } else {
         const errorData = await response.json();
-        setStatusMessage(
-          `Error stopping detection: ${errorData.detail || response.statusText}`
+        showToast(
+          `Error stopping detection: ${
+            errorData.detail || response.statusText
+          }`,
+          "error"
         );
       }
     } catch (error) {
-      setStatusMessage(
-        `Error stopping detection: ${
+      console.error("Error stopping detection:", error);
+      // Even if there's an error, assume detection is stopped
+      setIsDetecting(false);
+    }
+  };
+
+  // Function to restart detection with new parameters
+  const restartDetection = async () => {
+    try {
+      await stopDetection();
+      // Short delay to ensure stop completes
+      setTimeout(async () => {
+        await startDetection();
+      }, 1000);
+    } catch (error) {
+      showToast(
+        `Error restarting detection: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
+        "error"
       );
     }
   };
@@ -296,7 +385,7 @@ export default function Home() {
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-2xl p-8 shadow-xl">
               <div className="flex items-center gap-4 mb-6">
                 <div className="p-3 bg-indigo-800/30 rounded-full">
-                  <Settings size={28} className="text-indigo-400" />
+                  <SettingsIcon size={28} className="text-indigo-400" />
                 </div>
                 <h2 className="text-3xl font-bold text-white">
                   Llama API Setup
@@ -665,97 +754,87 @@ export default function Home() {
 
       case 5:
         return (
-          <div className="max-w-7xl mx-auto p-6">
-            <div className="flex items-center justify-between mb-8">
+          <div className="max-w-7xl mx-auto p-6 h-screen flex flex-col">
+            <div className="flex items-center justify-between mb-6">
               <h2 className="text-3xl font-bold text-white">
                 Llama 🦙 CCTV Monitoring
               </h2>
               <div className="flex items-center gap-3">
-                {isDetecting ? (
-                  <button
-                    onClick={stopDetection}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-800 text-white rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    <X size={18} />
-                    Stop Detection
-                  </button>
-                ) : (
-                  <button
-                    onClick={startDetection}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-800 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <Camera size={18} />
-                    Start Detection
-                  </button>
-                )}
-
                 <button
                   onClick={() => setShowConfig(!showConfig)}
                   className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
-                  {showConfig ? <X size={18} /> : <Settings size={18} />}
-                  {showConfig ? "Hide Config" : "Re-configure"}
+                  {showConfig ? <X size={18} /> : <SettingsIcon size={18} />}
+                  {showConfig ? "Close Settings" : "Settings"}
                 </button>
-
-                {showConfig && (
-                  <button
-                    onClick={() => {
-                      if (isDetecting) {
-                        stopDetection().then(() => startDetection());
-                      } else {
-                        startDetection();
-                      }
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-800 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    <ArrowRight size={18} />
-                    Re-start Detection
-                  </button>
-                )}
               </div>
             </div>
 
-            {statusMessage && (
+            {/* Toast notification */}
+            {statusMessage && toastVisible && (
               <div
-                className={`p-3 mb-6 rounded-lg text-white ${
-                  statusMessage.includes("Error")
-                    ? "bg-red-900/50 border border-red-800"
-                    : "bg-green-900/50 border border-green-800"
+                className={`fixed top-6 right-6 p-3 rounded-lg text-white shadow-lg max-w-md z-50 flex items-center gap-2 transform transition-all duration-300 ${
+                  toastType === "error"
+                    ? "bg-red-900/80 border border-red-800"
+                    : "bg-green-900/80 border border-green-800"
+                } ${
+                  toastVisible
+                    ? "translate-y-0 opacity-100"
+                    : "-translate-y-4 opacity-0"
                 }`}
               >
-                {statusMessage}
+                {toastType === "error" ? (
+                  <AlertCircle size={20} className="text-red-300" />
+                ) : (
+                  <CheckCircle size={20} className="text-green-300" />
+                )}
+                <span>{statusMessage}</span>
+                <button
+                  onClick={() => setToastVisible(false)}
+                  className="ml-auto p-1 rounded-full hover:bg-black/20"
+                >
+                  <X size={16} />
+                </button>
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2">
-                <div className="bg-black aspect-video rounded-2xl flex items-center justify-center mb-6 overflow-hidden border border-gray-800">
-                  {/* Replace Video player placeholder with iframe */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 flex-grow overflow-hidden">
+              <div className="lg:col-span-3 flex flex-col h-full overflow-hidden">
+                <div className="flex-grow rounded-2xl overflow-hidden border border-gray-800 flex-shrink-0 relative">
+                  {/* Video player with responsive height */}
                   <iframe
                     src={state.previewUrl}
-                    className="w-full h-full"
+                    className="absolute inset-0 w-full h-full"
                     title="Camera Preview"
                     allow="autoplay; fullscreen"
                   ></iframe>
                 </div>
-                <div className="p-5 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm">
-                  <h3 className="text-lg font-semibold mb-2 text-white">
-                    Video Information
-                  </h3>
-                  <p className="text-sm text-gray-300">
+                <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm mt-4 flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">
+                      Video Information
+                    </h3>
+                    {isDetecting && (
+                      <div className="flex items-center gap-2 px-3 py-1 bg-green-900/50 border border-green-800 rounded-lg text-sm text-green-300">
+                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                        <span>Detection in progress</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-300 mt-2">
                     RTSP URL: {state.rtspUrl}
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-6">
+              <div className="lg:col-span-2 h-full overflow-hidden flex flex-col">
                 {showConfig ? (
-                  <div className="p-5 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm">
+                  <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm overflow-y-auto h-full flex flex-col">
                     <h3 className="text-lg font-semibold mb-3 text-white">
-                      Configuration
+                      Settings
                     </h3>
 
-                    <div className="space-y-4">
+                    <div className="space-y-4 flex-grow">
                       {/* Llama API Settings - Moved to be first */}
                       <div>
                         <h4 className="text-md font-medium mb-3 text-white">
@@ -870,7 +949,7 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* Stream Context - Moved to be above the Events section */}
+                      {/* Stream Context */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           Stream Context
@@ -889,7 +968,7 @@ export default function Home() {
                         />
                       </div>
 
-                      {/* Events List - Moved before Edit Event Form */}
+                      {/* Events List */}
                       {state.eventsToDetect.length > 0 && (
                         <div className="mt-4 pt-4 border-t border-gray-700">
                           <h4 className="text-md font-medium mb-3 text-white">
@@ -931,7 +1010,7 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* Edit Event Form - Now after Events List */}
+                      {/* Edit Event Form */}
                       <div className="mt-4 pt-4 border-t border-gray-700">
                         <h4 className="text-md font-medium mb-3 text-white">
                           {editingEvent !== null
@@ -1023,13 +1102,36 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Restart button at the bottom */}
+                    <div className="mt-6 pt-4 border-t border-gray-700 flex-shrink-0 space-y-3">
+                      <button
+                        onClick={restartDetection}
+                        className="w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <RefreshCw size={16} />
+                        Restart Detection with New Settings
+                      </button>
+
+                      {isDetecting && (
+                        <button
+                          onClick={stopDetection}
+                          className="w-full py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <X size={16} />
+                          Stop Detection
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-5 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm h-full">
-                    <h3 className="text-lg font-semibold mb-3 text-white">
+                  <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 backdrop-blur-sm h-full flex flex-col overflow-hidden">
+                    <h3 className="text-lg font-semibold mb-3 text-white flex-shrink-0">
                       Detected Events
                     </h3>
-                    <EventLogs />
+                    <div className="overflow-hidden flex-grow">
+                      <EventLogs />
+                    </div>
                   </div>
                 )}
               </div>

@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LLamacon Hackathon UI",
-  description: "LLamacon Hackathon UI",
+  title: "Llama 🦙 CCTV Monitoring",
+  description:
+    "Llama 🦙 CCTV Monitoring - Developed for LLamacon Hackathon 2025 in SF",
 };
 
 export default function RootLayout({
