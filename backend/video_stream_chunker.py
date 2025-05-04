@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import queue
 import time
@@ -118,14 +119,18 @@ class VideoStreamChunker:
 
 
 if __name__ == "__main__":
-    output_dir = "../localdata/video_chunks"
-    stream_url = "rtsp://localhost:8554/hackathon"
+    with open("config.json", "r") as f:
+        config = json.load(f)
+
+    output_dir = config["output_dir"]
+    stream_url = config["rtsp_url"]
+    chunk_duration = config["chunk_duration"]
     file_queue = queue.Queue()
 
     chunker = VideoStreamChunker(
         stream_url=stream_url,
         output_dir=output_dir,
-        chunk_duration=5,
+        chunk_duration=chunk_duration,
         output_queue=file_queue,
     )
 

@@ -1,0 +1,20 @@
+{
+  "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "base_url": "https://api.llama.com/compat/v1/",
+  "rtsp_url": "rtsp://localhost:8554/hackathon",
+  "chunk_duration": 5,
+  "output_dir": "../localdata/video_chunks",
+  "context": "These frames are sampled every 1 second from a video of a robotic arm. The sequences depict a warehouse environment with a robotic arm and a conveyor belt.",
+  "events": [
+    {
+      "event_code": "robot-is-idle",
+      "event_description": "The robotic arm hasn't moved for the whole duration of the video.",
+      "detection_guidelines": "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the green light is on."
+    },
+    {
+      "event_code": "robot-in-error",
+      "event_description": "The robot is in error state.",
+      "detection_guidelines": "This event must be detected if and only if the robot hasn't moved for the whole duration of the video and the red light is on."
+    }
+  ]
+}
