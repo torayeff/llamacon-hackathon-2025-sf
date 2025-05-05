@@ -76,16 +76,3 @@ Here's a walkthrough of the user interface:
 
 5.  **Event Detail:** (Assuming step 5 shows event details or similar - update if incorrect) Shows specific details when an event is detected or selected.
     ![Step 5](images/step_5.png)
-
-## TODO
-
--   [x] Check Llama 4 video capabilities - Max 128k, Max 9 frames at 640x360.
--   [x] Test simple video event detection - Kinda works.
--   [x] Develop logic for stream processing (Chunker).
--   [x] Develop logic for event detection using Llama 4 (Detector).
--   [x] Implement Video Stream Chunker.
--   [x] Implement Database Writer.
--   [x] Basic Frontend implementation.
--   [ ] Refine event detection prompting/logic.
--   [ ] Enhance reporting/analysis features.
--   [ ] Improve UI/UX.
